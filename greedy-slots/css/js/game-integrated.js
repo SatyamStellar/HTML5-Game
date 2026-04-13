@@ -1,6 +1,5 @@
 const STORAGE_KEY = "greedy-slots-arena-state";
-const DEFAULT_GAME_SLUG = "greedy-slots";
-const DEFAULT_API_BASE = `${window.location.origin}/api`;
+const BASE_URL = "https://tapori.onrender.com/api";
 
 const SEGMENTS = [
   { id: "carrot", name: "Carrot", emoji: "🥕", multiplier: 5, hot: true },
@@ -44,7 +43,7 @@ const state = {
 };
 
 const api = {
-  baseUrl: resolveApiBase(),
+  baseUrl: BASE_URL,
   token: resolveAccessToken(),
   gameSlug: resolveGameSlug()
 };
@@ -86,6 +85,11 @@ const runtime = {
 };
 
 async function init() {
+  if (!api.token || !api.gameSlug) {
+    setBootstrapError("Missing token or gameSlug.");
+    return;
+  }
+
   loadState();
   ensureEmptyBets();
   buildChipRail();
@@ -98,47 +102,18 @@ async function init() {
   await syncWalletState();
 }
 
-function resolveApiBase() {
+function getFirstParamValue(key) {
   const url = new URL(window.location.href);
-  const queryValue = url.searchParams.get("apiBase");
-  const storedValue = window.localStorage.getItem("tapori_api_base");
-  const baseUrl = queryValue || storedValue || DEFAULT_API_BASE;
-
-  if (queryValue) {
-    window.localStorage.setItem("tapori_api_base", queryValue);
-  }
-
-  return baseUrl.replace(/\/+$/, "");
+  const values = url.searchParams.getAll(key).map((value) => value.trim()).filter(Boolean);
+  return values.length > 0 ? values[0] : "";
 }
 
 function resolveAccessToken() {
-  const url = new URL(window.location.href);
-  const queryToken = url.searchParams.get("token");
-
-  if (queryToken) {
-    window.localStorage.setItem("tapori_access_token", queryToken);
-    return queryToken;
-  }
-
-  return (
-    window.localStorage.getItem("tapori_access_token") ||
-    window.localStorage.getItem("accessToken") ||
-    window.localStorage.getItem("token") ||
-    ""
-  );
+  return getFirstParamValue("token");
 }
 
 function resolveGameSlug() {
-  const url = new URL(window.location.href);
-  const queryValue = url.searchParams.get("gameSlug");
-  const storedValue = window.localStorage.getItem("tapori_game_slug");
-  const gameSlug = (queryValue || storedValue || DEFAULT_GAME_SLUG).trim().toLowerCase();
-
-  if (queryValue) {
-    window.localStorage.setItem("tapori_game_slug", gameSlug);
-  }
-
-  return gameSlug;
+  return getFirstParamValue("gameSlug").toLowerCase();
 }
 
 function ensureEmptyBets() {
@@ -247,8 +222,15 @@ function bindEvents() {
 
 async function syncWalletState() {
   if (!api.token) {
-    setEntryStatus("Add your app access token in the URL as ?token=... so Tapori coins can be charged per round.", "warn");
+    setEntryStatus("Missing access token.", "error");
     setMessage("Tapori wallet is not connected yet.");
+    renderEntryPanel();
+    return;
+  }
+
+  if (!api.gameSlug) {
+    setEntryStatus("Missing game slug.", "error");
+    setMessage("Game configuration is unavailable.");
     renderEntryPanel();
     return;
   }
@@ -450,7 +432,7 @@ function toggleSound() {
 function handleSideAction(panel) {
   const panelMessages = {
     home: "Arena home is already open.",
-    settings: "Set apiBase and token from your app environment to connect the wallet.",
+    settings: "Set token and gameSlug from your app environment to connect the wallet.",
     help: "Each round costs Tapori coins from your backend wallet. Bets inside the demo use local practice credits.",
     history: "Recent results are shown in the result ribbon below.",
     trophy: "Leaderboard is simulated locally for now."
@@ -740,6 +722,13 @@ function setMessage(text) {
 function setEntryStatus(text, tone = "warn") {
   elements.entryStatus.textContent = text;
   elements.entryStatus.dataset.tone = tone;
+}
+
+function setBootstrapError(message) {
+  setEntryStatus(message, "error");
+  setMessage(message);
+  elements.playRoundBtn.disabled = true;
+  setActionButtonsDisabled(true);
 }
 
 function animateChip(button, amount) {
