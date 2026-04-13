@@ -18,7 +18,7 @@ const RESULT_DELAY = 2400;
 
 const state = {
   round: 1,
-  balance: 5000,
+  balance: 0,
   todayProfit: 0,
   walletCoins: null,
   playCost: 0,
@@ -331,7 +331,7 @@ function placeBet(segmentId, button) {
   }
 
   if (state.balance < state.selectedChip) {
-    setMessage("Not enough practice balance for that chip.");
+    setMessage("Not enough coins for that chip.");
     return;
   }
 
@@ -340,7 +340,7 @@ function placeBet(segmentId, button) {
   state.bets[segmentId] += state.selectedChip;
   state.repeatBets[segmentId] = state.bets[segmentId];
 
-  setMessage(`${segmentName(segmentId)} received ${formatCompact(state.selectedChip)} practice credits.`);
+  setMessage(`${segmentName(segmentId)} received ${formatCompact(state.selectedChip)} coins.`);
   renderAll();
   persistState();
 
@@ -385,7 +385,7 @@ function repeatBets() {
 
   clearBets();
   if (state.balance < plannedTotal) {
-    setMessage("Practice balance is too low to repeat the last bets.");
+    setMessage("Available coins are too low to repeat the last bets.");
     return;
   }
 
@@ -412,14 +412,14 @@ function luckyPick() {
   }
 
   if (state.balance < state.selectedChip) {
-    setMessage("Not enough practice balance for a lucky pick.");
+    setMessage("Not enough coins for a lucky pick.");
     return;
   }
 
   const randomSegment = SEGMENTS[Math.floor(Math.random() * SEGMENTS.length)];
   const amount = state.selectedChip;
   placeBet(randomSegment.id);
-  setMessage(`Lucky pick went to ${randomSegment.name} for ${formatCompact(amount)} practice credits.`);
+  setMessage(`Lucky pick went to ${randomSegment.name} for ${formatCompact(amount)} coins.`);
 }
 
 function toggleSound() {
@@ -433,7 +433,7 @@ function handleSideAction(panel) {
   const panelMessages = {
     home: "Arena home is already open.",
     settings: "Set token and gameSlug from your app environment to connect the wallet.",
-    help: "Each round costs Tapori coins from your backend wallet. Bets inside the demo use local practice credits.",
+    help: "Each round costs Tapori coins from your wallet. Place bets using your available coin balance.",
     history: "Recent results are shown in the result ribbon below.",
     trophy: "Leaderboard is simulated locally for now."
   };
@@ -523,7 +523,7 @@ async function resolveRound(winner) {
   if (prize > 0) {
     state.balance += prize;
     state.todayProfit += prize - state.totalBet;
-    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatCompact(prize)} practice credits.`);
+    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatCompact(prize)} coins.`);
   } else {
     state.todayProfit -= state.totalBet;
     setMessage(`${winner.name} won. No hit this round.`);
@@ -811,6 +811,7 @@ function persistState() {
 function loadState() {
   const raw = window.localStorage.getItem(STORAGE_KEY);
   if (!raw) {
+    state.balance = 0;
     updateTrendCards();
     return;
   }
@@ -818,7 +819,7 @@ function loadState() {
   try {
     const saved = JSON.parse(raw);
     state.round = saved.round ?? state.round;
-    state.balance = saved.balance ?? state.balance;
+    state.balance = saved.balance ?? 0;
     state.todayProfit = saved.todayProfit ?? 0;
     state.selectedChip = CHIPS.includes(saved.selectedChip) ? saved.selectedChip : state.selectedChip;
     state.repeatBets = saved.repeatBets ?? state.repeatBets;
@@ -835,8 +836,10 @@ function syncRemoteState(response) {
   if (response.user) {
     state.user = response.user;
     state.walletCoins = response.user.coins;
+    state.balance = response.user.coins;
   } else if (typeof response.coins === "number") {
     state.walletCoins = response.coins;
+    state.balance = response.coins;
     state.user = state.user
       ? { ...state.user, coins: response.coins }
       : { id: null, coins: response.coins };
