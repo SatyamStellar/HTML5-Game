@@ -1,5 +1,5 @@
 const STORAGE_KEY = "greedy-slots-arena-state";
-const GAME_ID = "greedy_slots";
+const DEFAULT_GAME_SLUG = "greedy-slots";
 const DEFAULT_API_BASE = `${window.location.origin}/api`;
 
 const SEGMENTS = [
@@ -36,12 +36,17 @@ const state = {
   latency: 168,
   roundPaid: false,
   isStartingRound: false,
-  authReady: false
+  authReady: false,
+  user: null,
+  game: null,
+  isPlaying: false,
+  playId: null
 };
 
 const api = {
   baseUrl: resolveApiBase(),
-  token: resolveAccessToken()
+  token: resolveAccessToken(),
+  gameSlug: resolveGameSlug()
 };
 
 const elements = {
@@ -121,6 +126,19 @@ function resolveAccessToken() {
     window.localStorage.getItem("token") ||
     ""
   );
+}
+
+function resolveGameSlug() {
+  const url = new URL(window.location.href);
+  const queryValue = url.searchParams.get("gameSlug");
+  const storedValue = window.localStorage.getItem("tapori_game_slug");
+  const gameSlug = (queryValue || storedValue || DEFAULT_GAME_SLUG).trim().toLowerCase();
+
+  if (queryValue) {
+    window.localStorage.setItem("tapori_game_slug", gameSlug);
+  }
+
+  return gameSlug;
 }
 
 function ensureEmptyBets() {
@@ -229,29 +247,26 @@ function bindEvents() {
 
 async function syncWalletState() {
   if (!api.token) {
-    setEntryStatus(
-      "Add your app access token in the URL as ?token=... or localStorage.tapori_access_token so Tapori coins can be charged per round.",
-      "warn"
-    );
+    setEntryStatus("Add your app access token in the URL as ?token=... so Tapori coins can be charged per round.", "warn");
     setMessage("Tapori wallet is not connected yet.");
     renderEntryPanel();
     return;
   }
 
   try {
-    const response = await apiRequest("/games");
-    const game = Array.isArray(response.games)
-      ? response.games.find((entry) => entry.id === GAME_ID)
-      : null;
+    const response = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
+    syncRemoteState(response);
 
-    state.walletCoins = response.coins;
-    state.playCost = game?.playCost || 0;
+    if (!state.game?.isActive) {
+      state.authReady = false;
+      setEntryStatus("This game is inactive.", "warn");
+      setMessage("This game is currently inactive.");
+      renderAll();
+      return;
+    }
+
     state.authReady = true;
-
-    setEntryStatus(
-      `Wallet connected. ${state.playCost} Tapori coins will be charged every time the user starts a new round.`,
-      "ready"
-    );
+    setEntryStatus(`Wallet connected. ${state.playCost} Tapori coins will be charged every time the user starts a new round.`, "ready");
     renderAll();
   } catch (error) {
     state.authReady = false;
@@ -271,11 +286,22 @@ async function startPaidRound() {
     return;
   }
 
-  if (!state.playCost) {
+  if (!api.gameSlug) {
+    setEntryStatus("Game slug is missing.", "error");
+    return;
+  }
+
+  if (!state.playCost || !state.game) {
     await syncWalletState();
-    if (!state.playCost) {
+    if (!state.playCost || !state.game) {
       return;
     }
+  }
+
+  if (!state.game.isActive) {
+    setEntryStatus("This game is inactive.", "warn");
+    setMessage("This game is currently inactive.");
+    return;
   }
 
   state.isStartingRound = true;
@@ -283,13 +309,17 @@ async function startPaidRound() {
   setEntryStatus(`Charging ${state.playCost} Tapori coins for round ${state.round}...`, "warn");
 
   try {
-    const response = await apiRequest(`/games/${GAME_ID}/play`, {
+    const response = await apiRequest("/game/play", {
       method: "POST",
-      body: JSON.stringify({ clientRoundId: `round-${state.round}` })
+      body: JSON.stringify({
+        gameSlug: api.gameSlug,
+        clientRoundId: `round-${state.round}`
+      })
     });
 
-    state.walletCoins = response.coins;
+    syncRemoteState(response);
     state.roundPaid = true;
+    state.isPlaying = true;
     state.isBettingOpen = true;
     state.countdown = ROUND_DURATION;
     state.currentWinner = null;
@@ -486,7 +516,7 @@ function animateWinner() {
     }
 
     clearInterval(runtime.winnerTimer);
-    resolveRound(finalWinner);
+    void resolveRound(finalWinner);
   }, 120);
 }
 
@@ -503,7 +533,7 @@ function drawWinningSegment() {
   return weightedPool[Math.floor(Math.random() * weightedPool.length)];
 }
 
-function resolveRound(winner) {
+async function resolveRound(winner) {
   state.currentWinner = winner.id;
 
   const winningBet = state.committedBets[winner.id] || 0;
@@ -525,6 +555,7 @@ function resolveRound(winner) {
   });
   state.history = state.history.slice(0, 12);
 
+  await endGame(prize > 0 ? "win" : "lose");
   resetOpenBets();
   renderAll();
   persistState();
@@ -547,6 +578,8 @@ function enterAwaitingPaymentState() {
   state.countdown = ROUND_DURATION;
   state.currentWinner = null;
   state.committedBets = buildEmptyBetMap();
+  state.isPlaying = false;
+  state.playId = null;
   resetOpenBets();
   clearHighlights();
   setActionButtonsDisabled(true);
@@ -763,7 +796,7 @@ async function apiRequest(path, options = {}) {
   });
 
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
+  if (!response.ok || data?.success === false) {
     const error = new Error(data?.error?.message || data?.message || "Request failed");
     error.status = response.status;
     throw error;
@@ -808,5 +841,62 @@ function loadState() {
 
   updateTrendCards();
 }
+
+function syncRemoteState(response) {
+  if (response.user) {
+    state.user = response.user;
+    state.walletCoins = response.user.coins;
+  } else if (typeof response.coins === "number") {
+    state.walletCoins = response.coins;
+    state.user = state.user
+      ? { ...state.user, coins: response.coins }
+      : { id: null, coins: response.coins };
+  }
+
+  if (response.game) {
+    state.game = response.game;
+    state.playCost = response.game.coinCost || response.game.playCost || 0;
+  }
+
+  if (response.playId) {
+    state.playId = response.playId;
+  }
+}
+
+async function endGame(result) {
+  if (!state.isPlaying || !api.gameSlug) {
+    return null;
+  }
+
+  try {
+    const response = await apiRequest("/game/result", {
+      method: "POST",
+      body: JSON.stringify({
+        gameSlug: api.gameSlug,
+        result
+      })
+    });
+
+    syncRemoteState(response);
+    state.isPlaying = false;
+    state.playId = null;
+    if (response.rewardGranted > 0) {
+      setEntryStatus(`Reward credited: ${formatCompact(response.rewardGranted)} Tapori coins.`, "ready");
+    }
+    return response;
+  } catch (error) {
+    state.isPlaying = false;
+    state.playId = null;
+    setEntryStatus(error.message || "Failed to submit game result.", "error");
+    return null;
+  }
+}
+
+window.GameBridge = {
+  state,
+  initGame: syncWalletState,
+  startGame: startPaidRound,
+  endGame
+};
 
 init();
