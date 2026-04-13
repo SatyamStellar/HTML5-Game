@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Greedy Slots Arena</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <div class="game-frame">
+      <header class="topbar">
+        <div class="icon-rail">
+          <button class="rail-btn" data-panel="home" aria-label="Home">⌂</button>
+          <button class="rail-btn" data-panel="settings" aria-label="Settings">⚙</button>
+          <button class="rail-btn" data-panel="help" aria-label="Help">?</button>
+          <button class="rail-btn" data-panel="history" aria-label="History">↺</button>
+          <button class="rail-btn" data-panel="trophy" aria-label="Leaderboard">🏆</button>
+        </div>
+
+        <div class="statusbar">
+          <div class="status-pill round-pill">
+            <span class="label">Round</span>
+            <strong id="roundNumber">1</strong>
+          </div>
+          <div class="brand-block">
+            <span class="brand-mark">🦁</span>
+            <div>
+              <h1>Greedy Slots Arena</h1>
+              <p>Mobile HTML5 wheel betting game</p>
+            </div>
+          </div>
+          <div class="status-pill ping-pill">
+            <span class="label">Ping</span>
+            <strong id="latency">168ms</strong>
+          </div>
+        </div>
+
+        <div class="chip-rail" id="chipRail" aria-label="Bet chips"></div>
+      </header>
+
+      <main class="game-main">
+        <section class="wheel-section">
+          <div class="wheel-board">
+            <div id="bettingWheel" class="betting-wheel" aria-label="Betting wheel"></div>
+            <div class="wheel-base"></div>
+          </div>
+
+          <div class="multiplier-strip">
+            <div class="boost-card">
+              <span class="boost-label">Left Trend</span>
+              <strong id="leftTrendValue">1.25x</strong>
+              <span id="leftTrendName">Salad</span>
+            </div>
+            <div class="recommendation-card">
+              <span class="recommendation-badge">Popular Recommendation</span>
+              <strong id="messageLine">Select a chip and place your bets.</strong>
+            </div>
+            <div class="boost-card align-right">
+              <span class="boost-label">Right Trend</span>
+              <strong id="rightTrendValue">4.50x</strong>
+              <span id="rightTrendName">Steak</span>
+            </div>
+          </div>
+
+          <div class="totals-bar">
+            <div class="total-box">
+              <span>Total Pool</span>
+              <strong id="totalPool">0</strong>
+            </div>
+            <div class="total-box mid-box">
+              <span>Selected Chip</span>
+              <strong id="selectedChip">200</strong>
+            </div>
+            <div class="total-box">
+              <span>Mine</span>
+              <strong id="myTotalBet">0</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="control-panel">
+          <div class="entry-panel">
+            <div class="wallet-card wallet-card-accent">
+              <span>Tapori Coins</span>
+              <strong id="walletCoinsValue">--</strong>
+            </div>
+            <div class="wallet-card wallet-card-accent">
+              <span>Entry Fee</span>
+              <strong id="playCostValue">--</strong>
+            </div>
+            <button id="playRoundBtn" class="action-btn action-btn-play">Pay To Play Round</button>
+          </div>
+
+          <div class="entry-status" id="entryStatus">
+            Connect your app token to charge Tapori coins before each round.
+          </div>
+
+          <div class="wallet-row">
+            <div class="wallet-card">
+              <span>Practice Balance</span>
+              <strong id="balanceValue">5000</strong>
+            </div>
+            <div class="wallet-card">
+              <span>Today's Profit</span>
+              <strong id="profitValue">0</strong>
+            </div>
+            <button id="repeatBtn" class="action-btn">Repeat</button>
+          </div>
+
+          <div class="action-row">
+            <button id="clearBtn" class="secondary-btn">Clear Bets</button>
+            <button id="randomBtn" class="secondary-btn">Lucky Pick</button>
+            <button id="soundBtn" class="secondary-btn">Sound On</button>
+          </div>
+
+          <div class="history-panel">
+            <div class="history-title">Results</div>
+            <div id="historyList" class="history-list" aria-live="polite"></div>
+          </div>
+
+          <div class="leaderboard">
+            <div class="leaderboard-label">Big Winner</div>
+            <div id="leaderboardText" class="leaderboard-text"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="css/js/game-integrated.js"></script>
+</body>
+</html>
