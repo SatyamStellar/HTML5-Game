@@ -436,7 +436,13 @@ async function resolveRound(winner) {
 
   const winningBet = state.committedBets[winner.id] || 0;
   const resultResponse = await endGame(winningBet > 0 ? "win" : "lose");
-  const rewardGranted = Number(resultResponse?.rewardGranted || 0);
+  const backendReward = Number(resultResponse?.rewardGranted || 0);
+  const rewardGranted = backendReward > 0 ? backendReward : (winningBet > 0 ? state.roundBudget : 0);
+
+  if (backendReward <= 0 && rewardGranted > 0) {
+    state.walletCoins = (state.walletCoins ?? 0) + rewardGranted;
+    state.balance = state.walletCoins;
+  }
 
   state.todayProfit += rewardGranted - state.roundBudget;
 
@@ -814,6 +820,8 @@ async function endGame(result) {
     });
 
     syncRemoteState(response);
+    const refreshedWallet = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
+    syncRemoteState(refreshedWallet);
     state.isPlaying = false;
     state.playId = null;
     if (response.rewardGranted > 0) {
