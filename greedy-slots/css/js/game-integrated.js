@@ -303,6 +303,8 @@ async function startPaidRound() {
     });
 
     syncRemoteState(response);
+    const refreshedWallet = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
+    syncRemoteState(refreshedWallet);
 
     if (typeof state.balance !== "number" || state.balance < 0) {
       state.balance = 0;
@@ -676,17 +678,19 @@ function renderTotals() {
 }
 
 function renderWallet() {
-  elements.balanceValue.textContent = formatCompact(state.walletCoins ?? state.balance);
+  elements.balanceValue.textContent = formatNumber(state.walletCoins ?? state.balance);
   elements.profitValue.textContent = formatSigned(state.todayProfit);
   elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
 
   const walletEl = document.getElementById("walletCoinsValue");
-  if (walletEl) walletEl.textContent = formatCompact(state.walletCoins ?? state.balance);
+  if (walletEl) walletEl.textContent = formatNumber(state.walletCoins ?? state.balance);
 }
 
 function renderEntryPanel() {
   const walletEl = document.getElementById("walletCoinsValue");
-  if (walletEl) walletEl.textContent = formatCompact(state.walletCoins ?? "--");
+  if (walletEl) walletEl.textContent = typeof (state.walletCoins ?? null) === "number"
+    ? formatNumber(state.walletCoins)
+    : "--";
 }
 
 function renderHistory() {
@@ -771,10 +775,50 @@ function formatCompact(value) {
 
 function formatSigned(value) {
   if (value > 0) {
-    return `+${formatCompact(value)}`;
+    return `+${formatNumber(value)}`;
   }
 
-  return formatCompact(value);
+  return formatNumber(value);
+}
+
+function formatNumber(value) {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return String(value);
+  }
+
+  return value.toLocaleString("en-IN");
+}
+
+function getCoinValue(payload) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const candidates = [
+    payload.coins,
+    payload.coinBalance,
+    payload.walletCoins,
+    payload.balance,
+    payload.wallet?.coins,
+    payload.wallet?.balance,
+    payload.user?.coins,
+    payload.user?.coinBalance,
+    payload.user?.walletCoins,
+    payload.user?.balance,
+    payload.data?.coins,
+    payload.data?.coinBalance,
+    payload.data?.walletCoins,
+    payload.data?.balance,
+    payload.data?.wallet?.coins,
+    payload.data?.wallet?.balance,
+    payload.data?.user?.coins,
+    payload.data?.user?.coinBalance,
+    payload.data?.user?.walletCoins,
+    payload.data?.user?.balance
+  ];
+
+  const coinValue = candidates.find((value) => typeof value === "number");
+  return typeof coinValue === "number" ? coinValue : null;
 }
 
 async function apiRequest(path, options = {}) {
@@ -836,25 +880,31 @@ function loadState() {
 }
 
 function syncRemoteState(response) {
-  if (response.user) {
-    state.user = response.user;
-    state.walletCoins = response.user.coins;
-    state.balance = response.user.coins;
-  } else if (typeof response.coins === "number") {
-    state.walletCoins = response.coins;
-    state.balance = response.coins;
+  const payload = response?.data && typeof response.data === "object" ? response.data : response;
+  const userPayload = payload?.user || payload?.data?.user || null;
+  const coinValue = getCoinValue(payload);
+
+  if (userPayload) {
+    state.user = userPayload;
+  }
+
+  if (typeof coinValue === "number") {
+    state.walletCoins = coinValue;
+    state.balance = coinValue;
     state.user = state.user
-      ? { ...state.user, coins: response.coins }
-      : { id: null, coins: response.coins };
+      ? { ...state.user, coins: coinValue }
+      : { id: null, coins: coinValue };
   }
 
-  if (response.game) {
-    state.game = response.game;
-    state.playCost = response.game.coinCost || response.game.playCost || CHIPS[0];
+  const gamePayload = payload?.game || payload?.data?.game;
+  if (gamePayload) {
+    state.game = gamePayload;
+    state.playCost = gamePayload.coinCost || gamePayload.playCost || CHIPS[0];
   }
 
-  if (response.playId) {
-    state.playId = response.playId;
+  const playId = payload?.playId || payload?.data?.playId;
+  if (playId) {
+    state.playId = playId;
   }
 }
 
