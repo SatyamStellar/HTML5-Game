@@ -84,6 +84,12 @@ const runtime = {
 };
 
 async function init() {
+  if (!api.token || !api.gameSlug) {
+    setBootstrapError("Missing token or gameSlug.");
+    updateStartButton("Connect Wallet to Start", true);
+    return;
+  }
+
   loadState();
   ensureEmptyBets();
   buildChipRail();
@@ -92,13 +98,6 @@ async function init() {
   enterAwaitingPaymentState();
   renderAll();
   startLatencyLoop();
-
-  if (!api.token || !api.gameSlug) {
-    enableOfflineMode();
-    renderAll();
-    return;
-  }
-
   await syncWalletState();
 }
 
@@ -229,14 +228,14 @@ function bindEvents() {
 
 async function syncWalletState() {
   if (!api.token) {
-    enableOfflineMode();
-    renderAll();
+    state.authReady = false;
+    updateStartButton("Connect Wallet to Start", true);
     return;
   }
 
   if (!api.gameSlug) {
-    enableOfflineMode();
-    renderAll();
+    state.authReady = false;
+    updateStartButton("Connect Wallet to Start", true);
     return;
   }
 
@@ -260,38 +259,46 @@ async function syncWalletState() {
     renderAll();
 
   } catch (error) {
-    enableOfflineMode();
-    setMessage("Could not reach the Tapori backend. Offline mode active.");
+    state.authReady = false;
+    setMessage("Could not reach the Tapori backend.");
+    updateStartButton("Retry Connection", false);
     renderAll();
   }
 }
 
 async function startPaidRound() {
   if (state.roundPaid || state.isStartingRound) {
-    return;
+    return { error: "Round already active" };
   }
 
   if (!api.token || !api.gameSlug) {
-    startLocalRound();
-    return;
+    setMessage("Wallet not connected. Please refresh.");
+    updateStartButton("Connect Wallet to Start", true);
+    return { error: "Wallet not connected" };
   }
 
   if (!state.playCost || !state.game) {
     setMessage("Loading game configuration...");
     await syncWalletState();
-    if (!state.playCost || !state.game) return;
+    if (!state.playCost || !state.game) {
+      return { error: "Wallet not connected" };
+    }
   }
 
   if (!state.game.isActive) {
     setEntryStatus("This game is inactive.", "warn");
     setMessage("This game is currently inactive.");
     updateStartButton("Game Inactive", true);
-    return;
+    return { error: "Game inactive" };
+  }
+
+  if (state.walletCoins !== null) {
+    state.balance = state.walletCoins;
   }
 
   if (state.balance < state.playCost) {
-    setMessage(`Insufficient coins. Need ${formatCompact(state.playCost)}, have ${formatCompact(state.balance)}.`);
-    return;
+    setMessage("Insufficient balance");
+    return { error: "Insufficient balance" };
   }
 
   state.isStartingRound = true;
@@ -307,7 +314,12 @@ async function startPaidRound() {
       })
     });
 
-    syncRemoteState(response); // Updates state.balance from backend
+    syncRemoteState(response);
+
+    if (typeof state.balance !== "number" || state.balance < 0) {
+      state.balance = 0;
+    }
+
     state.roundPaid = true;
     state.isPlaying = true;
     state.isBettingOpen = true;
@@ -321,53 +333,17 @@ async function startPaidRound() {
     setMessage("Round unlocked. Place your bets before the timer ends.");
 
     renderAll();
-    startRoundLoop(); // Now start the countdown timer
+    startRoundLoop();
+    return { success: true, coins: state.balance };
 
   } catch (error) {
-    enableOfflineMode();
-    startLocalRound();
+    setMessage(error?.message === "Insufficient balance" ? "Insufficient balance" : (error.message || "Unable to start the paid round."));
+    updateStartButton("Retry Start", false);
+    return { error: error?.message === "Insufficient balance" ? "Insufficient balance" : (error.message || "Unable to start the paid round.") };
   } finally {
     state.isStartingRound = false;
     renderAll();
   }
-}
-
-function enableOfflineMode() {
-  state.authReady = true;
-  state.game = { isActive: true, coinCost: state.playCost || CHIPS[0] };
-  state.playCost = state.game.coinCost || CHIPS[0];
-  state.walletCoins = state.walletCoins ?? Math.max(state.balance, state.playCost * 10);
-  state.balance = Math.max(state.balance, state.walletCoins);
-  setMessage("Offline mode active. Click 'Start Game' to play.");
-  updateStartButton();
-}
-
-function startLocalRound() {
-  if (!state.playCost) {
-    enableOfflineMode();
-  }
-
-  if (state.balance < state.playCost) {
-    setMessage(`Insufficient coins. Need ${formatCompact(state.playCost)}, have ${formatCompact(state.balance)}.`);
-    return;
-  }
-
-  state.balance -= state.playCost;
-  state.walletCoins = state.balance;
-  state.roundPaid = true;
-  state.isPlaying = true;
-  state.isBettingOpen = true;
-  state.countdown = ROUND_DURATION;
-  state.currentWinner = null;
-  state.committedBets = buildEmptyBetMap();
-
-  clearHighlights();
-  setActionButtonsDisabled(false);
-  updateStartButton("Round Active", true);
-  setMessage("Round unlocked. Place your bets before the timer ends.");
-  renderAll();
-  persistState();
-  startRoundLoop();
 }
 
 function placeBet(segmentId, button) {
@@ -376,7 +352,7 @@ function placeBet(segmentId, button) {
     return;
   }
 
-  if (state.balance < state.selectedChip) {
+  if (state.balance < state.selectedChip || state.balance - state.selectedChip < 0) {
     setMessage("Not enough coins for that chip.");
     return;
   }
@@ -800,7 +776,7 @@ function updateStartButton(text, disabled) {
     btn.textContent = `Tap To Play (${formatCompact(resolvedPlayCost)} coins)`;
   }
 
-  btn.disabled = disabled ?? (!state.authReady || state.roundPaid || state.isStartingRound);
+  btn.disabled = disabled ?? (!api.token || !api.gameSlug || !state.authReady || state.roundPaid || state.isStartingRound);
 }
 
 function animateChip(button, amount) {
@@ -935,9 +911,6 @@ function syncRemoteState(response) {
 
 async function endGame(result) {
   if (!state.isPlaying || !api.gameSlug) {
-    state.isPlaying = false;
-    state.playId = null;
-    state.walletCoins = state.balance;
     return null;
   }
 
