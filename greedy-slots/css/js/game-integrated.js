@@ -284,7 +284,12 @@ async function startPaidRound() {
       body: JSON.stringify({
         gameSlug: api.gameSlug,
         clientRoundId: `round-${state.round}`,
-        coinCost: chipCost
+        coinCost: chipCost,
+        playCost: chipCost,
+        amount: chipCost,
+        coins: chipCost,
+        chipValue: chipCost,
+        betAmount: chipCost
       })
     });
 
@@ -331,21 +336,20 @@ function placeBet(segmentId, button) {
     return;
   }
 
-  if (state.totalBet + state.selectedChip > state.roundBudget) {
-    setMessage("Bet exceeds round budget.");
-    return;
-  }
+  SEGMENTS.forEach((segment) => {
+    state.bets[segment.id] = 0;
+  });
 
-  state.totalBet += state.selectedChip;
-  state.bets[segmentId] += state.selectedChip;
-  state.repeatBets[segmentId] = state.bets[segmentId];
+  state.totalBet = state.roundBudget;
+  state.bets[segmentId] = state.roundBudget;
+  state.repeatBets[segmentId] = state.roundBudget;
 
-  setMessage(`${segmentName(segmentId)} received ${formatNumber(state.selectedChip)} coins.`);
+  setMessage(`${segmentName(segmentId)} locked ${formatNumber(state.roundBudget)} coins.`);
   renderAll();
   persistState();
 
   if (button) {
-    animateChip(button, state.selectedChip);
+    animateChip(button, state.roundBudget);
   }
 }
 
@@ -437,7 +441,7 @@ async function resolveRound(winner) {
   const winningBet = state.committedBets[winner.id] || 0;
   const resultResponse = await endGame(winningBet > 0 ? "win" : "lose");
   const backendReward = Number(resultResponse?.rewardGranted || 0);
-  const rewardGranted = backendReward > 0 ? backendReward : (winningBet > 0 ? state.roundBudget : 0);
+  const rewardGranted = winningBet > 0 ? (backendReward > 0 ? backendReward : state.roundBudget) : 0;
 
   if (backendReward <= 0 && rewardGranted > 0) {
     state.walletCoins = (state.walletCoins ?? 0) + rewardGranted;
