@@ -772,7 +772,7 @@ function updateStartButton(text, disabled) {
     btn.textContent = `Start Round (${formatCompact(state.playCost)} coins)`;
   }
 
-  btn.disabled = disabled ?? !state.authReady || state.roundPaid || !state.playCost;
+  btn.disabled = disabled ?? (!state.authReady || state.roundPaid || !state.playCost);
 }
 
 function animateChip(button, amount) {
