@@ -39,7 +39,8 @@ const state = {
   user: null,
   game: null,
   isPlaying: false,
-  playId: null
+  playId: null,
+  pendingChipStart: null
 };
 
 const api = {
@@ -70,7 +71,6 @@ const elements = {
   clearBtn: document.getElementById("clearBtn"),
   randomBtn: document.getElementById("randomBtn"),
   soundBtn: document.getElementById("soundBtn"),
-  startGameBtn: document.getElementById("startGameBtn"),
 
   centerTitle: null,
   centerSubtitle: null,
@@ -86,7 +86,6 @@ const runtime = {
 async function init() {
   if (!api.token || !api.gameSlug) {
     setBootstrapError("Missing token or gameSlug.");
-    updateStartButton("Connect Wallet to Start", true);
     return;
   }
 
@@ -126,8 +125,9 @@ function ensureEmptyBets() {
 function buildChipRail() {
   elements.chipRail.innerHTML = CHIPS.map((chip) => {
     const activeClass = chip === state.selectedChip ? "active" : "";
+    const disabledAttr = state.isStartingRound ? "disabled" : "";
     return `
-      <button class="chip-btn ${activeClass}" data-chip="${chip}">
+      <button class="chip-btn ${activeClass}" data-chip="${chip}" ${disabledAttr}>
         <span>🪙</span>
         ${formatCompact(chip)}
       </button>
@@ -187,9 +187,13 @@ function segmentPosition(index) {
 }
 
 function bindEvents() {
-  elements.chipRail.addEventListener("click", (event) => {
+  elements.chipRail.addEventListener("click", async (event) => {
     const chipButton = event.target.closest("[data-chip]");
     if (!chipButton) {
+      return;
+    }
+
+    if (state.isStartingRound) {
       return;
     }
 
@@ -197,6 +201,10 @@ function bindEvents() {
     renderChipRail();
     renderTotals();
     persistState();
+
+    if (!state.roundPaid) {
+      await startPaidRound();
+    }
   });
 
   elements.bettingWheel.addEventListener("click", (event) => {
@@ -206,14 +214,6 @@ function bindEvents() {
     }
 
     placeBet(segmentButton.dataset.segmentId, segmentButton);
-  });
-
-  elements.startGameBtn?.addEventListener("click", async () => {
-    if (state.roundPaid) {
-      setMessage("Round already active. Place your bets!");
-      return;
-    }
-    await startPaidRound();
   });
 
   elements.clearBtn.addEventListener("click", clearBets);
@@ -229,13 +229,11 @@ function bindEvents() {
 async function syncWalletState() {
   if (!api.token) {
     state.authReady = false;
-    updateStartButton("Connect Wallet to Start", true);
     return;
   }
 
   if (!api.gameSlug) {
     state.authReady = false;
-    updateStartButton("Connect Wallet to Start", true);
     return;
   }
 
@@ -243,25 +241,22 @@ async function syncWalletState() {
     const response = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
     syncRemoteState(response);
     renderWallet();
-    updateStartButton();
 
     if (!state.game?.isActive) {
       state.authReady = false;
       setEntryStatus("This game is inactive.", "warn");
       setMessage("This game is currently inactive.");
-      updateStartButton("Game Inactive", true);
       renderAll();
       return;
     }
 
     state.authReady = true;
-    setMessage("Wallet connected. Click 'Start Game' to begin.");
+    setMessage("Wallet connected. Select a chip to start.");
     renderAll();
 
   } catch (error) {
     state.authReady = false;
     setMessage("Could not reach the Tapori backend.");
-    updateStartButton("Retry Connection", false);
     renderAll();
   }
 }
@@ -273,44 +268,35 @@ async function startPaidRound() {
 
   if (!api.token || !api.gameSlug) {
     setMessage("Wallet not connected. Please refresh.");
-    updateStartButton("Connect Wallet to Start", true);
     return { error: "Wallet not connected" };
   }
 
-  if (!state.playCost || !state.game) {
-    setMessage("Loading game configuration...");
-    await syncWalletState();
-    if (!state.playCost || !state.game) {
-      return { error: "Wallet not connected" };
-    }
-  }
-
-  if (!state.game.isActive) {
-    setEntryStatus("This game is inactive.", "warn");
-    setMessage("This game is currently inactive.");
-    updateStartButton("Game Inactive", true);
-    return { error: "Game inactive" };
-  }
-
-  if (state.walletCoins !== null) {
-    state.balance = state.walletCoins;
-  }
-
-  if (state.balance < state.playCost) {
-    setMessage("Insufficient balance");
-    return { error: "Insufficient balance" };
-  }
-
   state.isStartingRound = true;
-  updateStartButton("Starting...", true);
-  setMessage(`Charging ${formatCompact(state.playCost)} Tapori coins for round ${state.round}...`);
+  state.pendingChipStart = state.selectedChip;
+  renderChipRail();
+  setMessage(`Charging ${formatCompact(state.selectedChip)} Tapori coins...`);
 
   try {
+    const walletResponse = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
+    syncRemoteState(walletResponse);
+
+    if (!state.game?.isActive) {
+      setMessage("This game is currently inactive.");
+      return { error: "Game inactive" };
+    }
+
+    if ((state.walletCoins ?? 0) < state.selectedChip) {
+      setMessage("Insufficient balance");
+      renderAll();
+      return { error: "Insufficient balance" };
+    }
+
     const response = await apiRequest("/game/play", {
       method: "POST",
       body: JSON.stringify({
         gameSlug: api.gameSlug,
-        clientRoundId: `round-${state.round}`
+        clientRoundId: `round-${state.round}`,
+        coinCost: state.selectedChip
       })
     });
 
@@ -319,6 +305,8 @@ async function startPaidRound() {
     if (typeof state.balance !== "number" || state.balance < 0) {
       state.balance = 0;
     }
+
+    state.playCost = state.selectedChip;
 
     state.roundPaid = true;
     state.isPlaying = true;
@@ -329,7 +317,6 @@ async function startPaidRound() {
 
     clearHighlights();
     setActionButtonsDisabled(false);
-    updateStartButton("Round Active", true);
     setMessage("Round unlocked. Place your bets before the timer ends.");
 
     renderAll();
@@ -338,17 +325,17 @@ async function startPaidRound() {
 
   } catch (error) {
     setMessage(error?.message === "Insufficient balance" ? "Insufficient balance" : (error.message || "Unable to start the paid round."));
-    updateStartButton("Retry Start", false);
     return { error: error?.message === "Insufficient balance" ? "Insufficient balance" : (error.message || "Unable to start the paid round.") };
   } finally {
     state.isStartingRound = false;
+    state.pendingChipStart = null;
     renderAll();
   }
 }
 
 function placeBet(segmentId, button) {
   if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Pay the Tapori coin entry fee to unlock the next round.");
+    setMessage("Select a chip to start the round.");
     return;
   }
 
@@ -373,7 +360,7 @@ function placeBet(segmentId, button) {
 
 function clearBets() {
   if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Start a paid round first, then you can clear open bets.");
+    setMessage("Start a round first, then you can clear open bets.");
     return;
   }
 
@@ -395,7 +382,7 @@ function clearBets() {
 
 function repeatBets() {
   if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Unlock a paid round before repeating bets.");
+    setMessage("Start a round before repeating bets.");
     return;
   }
 
@@ -429,7 +416,7 @@ function repeatBets() {
 
 function luckyPick() {
   if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Pay the Tapori coin entry fee to unlock lucky pick.");
+    setMessage("Select a chip to start the round.");
     return;
   }
 
@@ -575,8 +562,7 @@ async function resolveRound(winner) {
     state.round += 1; // Increment round counter
     enterAwaitingPaymentState();
     updateTrendCards();
-    updateStartButton(); // Re-enable Start button
-    setMessage("Round complete. Click 'Start Game' for next round.");
+    setMessage("Round complete. Select a chip to start the next round.");
     renderAll();
     persistState();
   }, RESULT_DELAY);
@@ -646,6 +632,7 @@ function renderAll() {
 function renderChipRail() {
   elements.chipRail.querySelectorAll(".chip-btn").forEach((button) => {
     button.classList.toggle("active", Number(button.dataset.chip) === state.selectedChip);
+    button.disabled = state.isStartingRound;
   });
 }
 
@@ -681,10 +668,10 @@ function renderCenter() {
     elements.centerTitle.textContent = `${winner.emoji} ${winner.name}`;
     elements.centerSubtitle.textContent = `Winning multiplier ${winner.multiplier}x`;
   } else {
-    elements.centerTitle.textContent = "Pay To Play";
-    elements.centerSubtitle.textContent = state.playCost
-      ? `${formatCompact(state.playCost)} Tapori coins are charged for every new round`
-      : "Connect the backend wallet to load the Tapori coin entry fee";
+    elements.centerTitle.textContent = "Select Chip";
+    elements.centerSubtitle.textContent = state.authReady
+      ? "Choose a chip to deduct coins and start the round"
+      : "Connect the backend wallet to play";
   }
 }
 
@@ -699,19 +686,12 @@ function renderWallet() {
   elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
 
   const walletEl = document.getElementById("walletCoinsValue");
-  const playCostEl = document.getElementById("playCostValue");
   if (walletEl) walletEl.textContent = formatCompact(state.walletCoins ?? state.balance);
-  if (playCostEl) playCostEl.textContent = state.playCost ? formatCompact(state.playCost) : "--";
-
-  updateStartButton();
 }
 
 function renderEntryPanel() {
   const walletEl = document.getElementById("walletCoinsValue");
-  const playCostEl = document.getElementById("playCostValue");
   if (walletEl) walletEl.textContent = formatCompact(state.walletCoins ?? "--");
-  if (playCostEl) playCostEl.textContent = state.playCost ? formatCompact(state.playCost) : "--";
-  updateStartButton();
 }
 
 function renderHistory() {
@@ -757,26 +737,6 @@ function setEntryStatus() { }
 function setBootstrapError(message) {
   setMessage(message);
   setActionButtonsDisabled(true);
-}
-
-function updateStartButton(text, disabled) {
-  const btn = elements.startGameBtn;
-  if (!btn) return;
-  const resolvedPlayCost = state.playCost || state.game?.coinCost || state.game?.playCost || CHIPS[0];
-
-  if (text) {
-    btn.textContent = text;
-  } else if (state.isStartingRound) {
-    btn.textContent = "Starting...";
-  } else if (!state.authReady) {
-    btn.textContent = "Connect Wallet to Start";
-  } else if (state.roundPaid) {
-    btn.textContent = "Round Active";
-  } else {
-    btn.textContent = `Tap To Play (${formatCompact(resolvedPlayCost)} coins)`;
-  }
-
-  btn.disabled = disabled ?? (!api.token || !api.gameSlug || !state.authReady || state.roundPaid || state.isStartingRound);
 }
 
 function animateChip(button, amount) {
