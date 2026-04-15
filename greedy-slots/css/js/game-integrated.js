@@ -22,6 +22,7 @@ const state = {
   todayProfit: 0,
   walletCoins: null,
   playCost: 0,
+  roundBudget: 0,
   selectedChip: CHIPS[0],
   bets: {},
   repeatBets: {},
@@ -271,10 +272,11 @@ async function startPaidRound() {
     return { error: "Wallet not connected" };
   }
 
+  const chipCost = state.selectedChip;
   state.isStartingRound = true;
-  state.pendingChipStart = state.selectedChip;
+  state.pendingChipStart = chipCost;
   renderChipRail();
-  setMessage(`Charging ${formatCompact(state.selectedChip)} Tapori coins...`);
+  setMessage(`Charging ${formatCompact(chipCost)} Tapori coins...`);
 
   try {
     const walletResponse = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
@@ -285,7 +287,7 @@ async function startPaidRound() {
       return { error: "Game inactive" };
     }
 
-    if ((state.walletCoins ?? 0) < state.selectedChip) {
+    if ((state.walletCoins ?? 0) < chipCost) {
       setMessage("Insufficient balance");
       renderAll();
       return { error: "Insufficient balance" };
@@ -296,7 +298,7 @@ async function startPaidRound() {
       body: JSON.stringify({
         gameSlug: api.gameSlug,
         clientRoundId: `round-${state.round}`,
-        coinCost: state.selectedChip
+        coinCost: chipCost
       })
     });
 
@@ -306,7 +308,8 @@ async function startPaidRound() {
       state.balance = 0;
     }
 
-    state.playCost = state.selectedChip;
+    state.playCost = chipCost;
+    state.roundBudget = chipCost;
 
     state.roundPaid = true;
     state.isPlaying = true;
@@ -314,6 +317,7 @@ async function startPaidRound() {
     state.countdown = ROUND_DURATION;
     state.currentWinner = null;
     state.committedBets = buildEmptyBetMap();
+    resetOpenBets();
 
     clearHighlights();
     setActionButtonsDisabled(false);
@@ -339,12 +343,11 @@ function placeBet(segmentId, button) {
     return;
   }
 
-  if (state.balance < state.selectedChip || state.balance - state.selectedChip < 0) {
-    setMessage("Not enough coins for that chip.");
+  if (state.totalBet + state.selectedChip > state.roundBudget) {
+    setMessage("Bet exceeds round budget.");
     return;
   }
 
-  state.balance -= state.selectedChip;
   state.totalBet += state.selectedChip;
   state.bets[segmentId] += state.selectedChip;
   state.repeatBets[segmentId] = state.bets[segmentId];
@@ -370,7 +373,6 @@ function clearBets() {
     return;
   }
 
-  state.balance += refunded;
   state.totalBet = 0;
   SEGMENTS.forEach((segment) => {
     state.bets[segment.id] = 0;
@@ -393,8 +395,8 @@ function repeatBets() {
   }
 
   clearBets();
-  if (state.balance < plannedTotal) {
-    setMessage("Available coins are too low to repeat the last bets.");
+  if (plannedTotal > state.roundBudget) {
+    setMessage("Previous bets exceed round budget.");
     return;
   }
 
@@ -405,7 +407,6 @@ function repeatBets() {
     }
 
     state.bets[segment.id] = amount;
-    state.balance -= amount;
     state.totalBet += amount;
   });
 
@@ -420,8 +421,8 @@ function luckyPick() {
     return;
   }
 
-  if (state.balance < state.selectedChip) {
-    setMessage("Not enough coins for a lucky pick.");
+  if (state.totalBet + state.selectedChip > state.roundBudget) {
+    setMessage("Bet exceeds round budget.");
     return;
   }
 
@@ -527,20 +528,6 @@ function drawWinningSegment() {
 async function resolveRound(winner) {
   state.currentWinner = winner.id;
 
-  // Calculate winnings
-  const winningBet = state.committedBets[winner.id] || 0;
-  const prize = winningBet * winner.multiplier;
-
-  if (prize > 0) {
-    state.balance += prize;
-    state.todayProfit += prize - state.totalBet;
-    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatCompact(prize)} coins.`);
-  } else {
-    state.todayProfit -= state.totalBet;
-    setMessage(`${winner.name} won. No hit this round.`);
-  }
-
-  // Update history
   state.history.unshift({
     id: winner.id,
     emoji: winner.emoji,
@@ -549,17 +536,24 @@ async function resolveRound(winner) {
   });
   state.history = state.history.slice(0, 12);
 
-  // Submit result to backend
-  await endGame(prize > 0 ? "win" : "lose");
+  const winningBet = state.committedBets[winner.id] || 0;
+  const resultResponse = await endGame(winningBet > 0 ? "win" : "lose");
+  const rewardGranted = Number(resultResponse?.rewardGranted || 0);
 
-  // Reset bets and render
+  state.todayProfit += rewardGranted - state.roundBudget;
+
+  if (rewardGranted > 0) {
+    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatCompact(rewardGranted)} coins.`);
+  } else {
+    setMessage(`${winner.name} won. No hit this round.`);
+  }
+
   resetOpenBets();
   renderAll();
   persistState();
 
-  // After delay, return to awaiting payment state (manual start for next round)
   window.setTimeout(() => {
-    state.round += 1; // Increment round counter
+    state.round += 1;
     enterAwaitingPaymentState();
     updateTrendCards();
     setMessage("Round complete. Select a chip to start the next round.");
@@ -577,6 +571,7 @@ function enterAwaitingPaymentState() {
   state.countdown = ROUND_DURATION;
   state.currentWinner = null;
   state.committedBets = buildEmptyBetMap();
+  state.roundBudget = 0;
   state.isPlaying = false;
   state.playId = null;
   resetOpenBets();
@@ -681,7 +676,7 @@ function renderTotals() {
 }
 
 function renderWallet() {
-  elements.balanceValue.textContent = formatCompact(state.balance);
+  elements.balanceValue.textContent = formatCompact(state.walletCoins ?? state.balance);
   elements.profitValue.textContent = formatSigned(state.todayProfit);
   elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
 
@@ -841,19 +836,13 @@ function loadState() {
 }
 
 function syncRemoteState(response) {
-  const shouldSyncBalance = !state.roundPaid && !state.isPlaying && state.totalBet === 0;
-
   if (response.user) {
     state.user = response.user;
     state.walletCoins = response.user.coins;
-    if (shouldSyncBalance) {
-      state.balance = response.user.coins;
-    }
+    state.balance = response.user.coins;
   } else if (typeof response.coins === "number") {
     state.walletCoins = response.coins;
-    if (shouldSyncBalance) {
-      state.balance = response.coins;
-    }
+    state.balance = response.coins;
     state.user = state.user
       ? { ...state.user, coins: response.coins }
       : { id: null, coins: response.coins };
