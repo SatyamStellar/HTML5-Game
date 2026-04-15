@@ -53,22 +53,25 @@ button {
 
 .topbar {
   display: grid;
-  grid-template-columns: 72px 1fr 88px;
+  gap: 12px;
+}
+
+.statusbar {
+  display: grid;
+  grid-template-columns: minmax(0, 120px) minmax(0, 1fr) minmax(0, 120px);
   gap: 12px;
   align-items: start;
 }
 
-.icon-rail,
 .chip-rail {
   display: grid;
   gap: 10px;
 }
 
 .chip-rail {
-  grid-auto-flow: row;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-.rail-btn,
 .chip-btn {
   width: 100%;
   min-height: 58px;
@@ -81,17 +84,9 @@ button {
   font-weight: 800;
 }
 
-.rail-btn:active,
 .chip-btn:active,
-.segment-btn:active,
-.action-btn:active,
-.secondary-btn:active {
+.segment-btn:active {
   transform: translateY(2px);
-}
-
-.statusbar {
-  display: grid;
-  gap: 12px;
 }
 
 .brand-block,
@@ -332,9 +327,7 @@ button {
 
 .multiplier-strip,
 .totals-bar,
-.entry-panel,
 .wallet-row,
-.action-row,
 .leaderboard {
   display: grid;
   gap: 12px;
@@ -342,7 +335,6 @@ button {
 
 .multiplier-strip,
 .totals-bar,
-.entry-panel,
 .wallet-row {
   grid-template-columns: repeat(3, 1fr);
 }
@@ -352,9 +344,7 @@ button {
 .total-box,
 .wallet-card,
 .history-panel,
-.leaderboard,
-.secondary-btn,
-.action-btn {
+.leaderboard {
   border-radius: 22px;
   box-shadow: var(--shadow);
 }
@@ -424,10 +414,6 @@ button {
   background: linear-gradient(180deg, #fff7d1 0%, #ffc85a 100%);
 }
 
-.action-btn-play {
-  background: linear-gradient(180deg, #fff4f6 0%, #ffb6c1 100%);
-}
-
 .entry-status {
   margin-top: 12px;
   padding: 12px 16px;
@@ -447,34 +433,6 @@ button {
 
 .entry-status[data-tone="error"] {
   background: rgba(255, 95, 95, 0.26);
-}
-
-.action-btn,
-.secondary-btn {
-  min-height: 70px;
-  font-size: 1.12rem;
-  font-weight: 900;
-}
-
-.action-btn {
-  background: linear-gradient(180deg, #f5f3f5 0%, #cfd0d9 100%);
-  color: var(--ink);
-}
-
-.action-btn:disabled,
-.secondary-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.secondary-btn {
-  background: linear-gradient(180deg, #fff6db 0%, #ffd973 100%);
-  color: var(--ink);
-}
-
-.action-row {
-  grid-template-columns: repeat(3, 1fr);
-  margin-top: 12px;
 }
 
 .history-panel {
@@ -499,8 +457,7 @@ button {
 }
 
 .history-list::-webkit-scrollbar,
-.chip-rail::-webkit-scrollbar,
-.icon-rail::-webkit-scrollbar {
+.chip-rail::-webkit-scrollbar {
   display: none;
 }
 
@@ -588,15 +545,6 @@ button {
     padding: 10px;
   }
 
-  .topbar {
-    grid-template-columns: 1fr;
-  }
-
-  .icon-rail,
-  .chip-rail {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
   .statusbar {
     grid-template-columns: 1fr;
   }
@@ -625,7 +573,7 @@ button {
   }
 
   .wallet-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -648,7 +596,6 @@ button {
     gap: 8px;
   }
 
-  .icon-rail,
   .chip-rail {
     grid-auto-flow: column;
     grid-template-columns: none;
@@ -658,7 +605,6 @@ button {
     padding-bottom: 4px;
   }
 
-  .rail-btn,
   .chip-btn {
     min-height: 54px;
     border-radius: 16px;
@@ -766,7 +712,6 @@ button {
   .multiplier-strip,
   .totals-bar,
   .wallet-row,
-  .action-row,
   .leaderboard {
     grid-template-columns: 1fr;
   }
@@ -774,7 +719,6 @@ button {
   .multiplier-strip,
   .totals-bar,
   .wallet-row,
-  .action-row,
   .leaderboard {
     gap: 10px;
   }
@@ -784,9 +728,7 @@ button {
   .total-box,
   .wallet-card,
   .history-panel,
-  .leaderboard,
-  .secondary-btn,
-  .action-btn {
+  .leaderboard {
     border-radius: 18px;
   }
 
@@ -804,12 +746,6 @@ button {
   .wallet-card strong,
   .total-box strong {
     font-size: 1.2rem;
-  }
-
-  .action-btn,
-  .secondary-btn {
-    min-height: 56px;
-    font-size: 1rem;
   }
 
   .leaderboard {

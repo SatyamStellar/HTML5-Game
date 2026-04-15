@@ -31,7 +31,6 @@ const state = {
   isBettingOpen: false,
   countdown: ROUND_DURATION,
   history: [],
-  soundOn: true,
   currentWinner: null,
   latency: 168,
   roundPaid: false,
@@ -68,10 +67,6 @@ const elements = {
   rightTrendName: document.getElementById("rightTrendName"),
   historyList: document.getElementById("historyList"),
   leaderboardText: document.getElementById("leaderboardText"),
-  repeatBtn: document.getElementById("repeatBtn"),
-  clearBtn: document.getElementById("clearBtn"),
-  randomBtn: document.getElementById("randomBtn"),
-  soundBtn: document.getElementById("soundBtn"),
 
   centerTitle: null,
   centerSubtitle: null,
@@ -216,15 +211,6 @@ function bindEvents() {
 
     placeBet(segmentButton.dataset.segmentId, segmentButton);
   });
-
-  elements.clearBtn.addEventListener("click", clearBets);
-  elements.repeatBtn.addEventListener("click", repeatBets);
-  elements.randomBtn.addEventListener("click", luckyPick);
-  elements.soundBtn.addEventListener("click", toggleSound);
-
-  document.querySelectorAll(".rail-btn").forEach((button) => {
-    button.addEventListener("click", () => handleSideAction(button.dataset.panel));
-  });
 }
 
 async function syncWalletState() {
@@ -361,96 +347,6 @@ function placeBet(segmentId, button) {
   if (button) {
     animateChip(button, state.selectedChip);
   }
-}
-
-function clearBets() {
-  if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Start a round first, then you can clear open bets.");
-    return;
-  }
-
-  const refunded = state.totalBet;
-  if (!refunded) {
-    setMessage("No active bets to clear.");
-    return;
-  }
-
-  state.totalBet = 0;
-  SEGMENTS.forEach((segment) => {
-    state.bets[segment.id] = 0;
-  });
-  setMessage("All open bets cleared.");
-  renderAll();
-  persistState();
-}
-
-function repeatBets() {
-  if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Start a round before repeating bets.");
-    return;
-  }
-
-  const plannedTotal = Object.values(state.repeatBets).reduce((sum, value) => sum + value, 0);
-  if (!plannedTotal) {
-    setMessage("No previous bet pattern to repeat yet.");
-    return;
-  }
-
-  clearBets();
-  if (plannedTotal > state.roundBudget) {
-    setMessage("Previous bets exceed round budget.");
-    return;
-  }
-
-  SEGMENTS.forEach((segment) => {
-    const amount = state.repeatBets[segment.id];
-    if (!amount) {
-      return;
-    }
-
-    state.bets[segment.id] = amount;
-    state.totalBet += amount;
-  });
-
-  setMessage("Previous bet pattern applied.");
-  renderAll();
-  persistState();
-}
-
-function luckyPick() {
-  if (!state.roundPaid || !state.isBettingOpen) {
-    setMessage("Select a chip to start the round.");
-    return;
-  }
-
-  if (state.totalBet + state.selectedChip > state.roundBudget) {
-    setMessage("Bet exceeds round budget.");
-    return;
-  }
-
-  const randomSegment = SEGMENTS[Math.floor(Math.random() * SEGMENTS.length)];
-  const amount = state.selectedChip;
-  placeBet(randomSegment.id);
-  setMessage(`Lucky pick went to ${randomSegment.name} for ${formatCompact(amount)} coins.`);
-}
-
-function toggleSound() {
-  state.soundOn = !state.soundOn;
-  elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
-  setMessage(state.soundOn ? "Sound cues enabled." : "Sound cues muted.");
-  persistState();
-}
-
-function handleSideAction(panel) {
-  const panelMessages = {
-    home: "Arena home is already open.",
-    settings: "Set token and gameSlug from your app environment to connect the wallet.",
-    help: "Each round costs Tapori coins from your wallet. Place bets using your available coin balance.",
-    history: "Recent results are shown in the result ribbon below.",
-    trophy: "Leaderboard is simulated locally for now."
-  };
-
-  setMessage(panelMessages[panel] || "Panel coming soon.");
 }
 
 function startRoundLoop() {
@@ -597,9 +493,7 @@ function buildEmptyBetMap() {
 }
 
 function setActionButtonsDisabled(disabled) {
-  elements.repeatBtn.disabled = disabled;
-  elements.clearBtn.disabled = disabled;
-  elements.randomBtn.disabled = disabled;
+  return disabled;
 }
 
 function highlightSegment(segmentId) {
@@ -680,7 +574,6 @@ function renderTotals() {
 function renderWallet() {
   elements.balanceValue.textContent = formatNumber(state.walletCoins ?? state.balance);
   elements.profitValue.textContent = formatSigned(state.todayProfit);
-  elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
 
   const walletEl = document.getElementById("walletCoinsValue");
   if (walletEl) walletEl.textContent = formatNumber(state.walletCoins ?? state.balance);
@@ -848,8 +741,7 @@ function persistState() {
     todayProfit: state.todayProfit,
     selectedChip: state.selectedChip,
     repeatBets: state.repeatBets,
-    history: state.history,
-    soundOn: state.soundOn
+    history: state.history
   };
 
   window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
@@ -871,7 +763,6 @@ function loadState() {
     state.selectedChip = CHIPS.includes(saved.selectedChip) ? saved.selectedChip : state.selectedChip;
     state.repeatBets = saved.repeatBets ?? state.repeatBets;
     state.history = saved.history ?? [];
-    state.soundOn = typeof saved.soundOn === "boolean" ? saved.soundOn : true;
   } catch (error) {
     console.error("Failed to restore saved game state.", error);
   }
