@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Greedy Slots Arena</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
+
 <body>
   <div class="app-shell">
     <div class="game-frame">
@@ -80,7 +82,20 @@
         </section>
 
         <section class="control-panel">
-
+          <div class="entry-panel">
+            <div class="wallet-card wallet-card-accent">
+              <span>Tapori Coins</span>
+              <strong id="walletCoinsValue">--</strong>
+            </div>
+            <div class="wallet-card wallet-card-accent">
+              <span>Entry Fee</span>
+              <strong id="playCostValue">--</strong>
+            </div>
+            <!-- Manual Start Button - Enabled after wallet sync -->
+            <button id="startGameBtn" class="action-btn action-btn-play" disabled>
+              Connect Wallet to Start
+            </button>
+          </div>
 
           <div class="wallet-row">
             <div class="wallet-card">
@@ -91,12 +106,12 @@
               <span>Round Profit</span>
               <strong id="profitValue">0</strong>
             </div>
-            <button id="repeatBtn" class="action-btn">Repeat</button>
+            <button id="repeatBtn" class="action-btn" disabled>Repeat</button>
           </div>
 
           <div class="action-row">
-            <button id="clearBtn" class="secondary-btn">Clear Bets</button>
-            <button id="randomBtn" class="secondary-btn">Lucky Pick</button>
+            <button id="clearBtn" class="secondary-btn" disabled>Clear Bets</button>
+            <button id="randomBtn" class="secondary-btn" disabled>Lucky Pick</button>
             <button id="soundBtn" class="secondary-btn">Sound On</button>
           </div>
 
@@ -116,4 +131,5 @@
 
   <script src="css/js/game-integrated.js"></script>
 </body>
+
 </html>

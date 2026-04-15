@@ -70,6 +70,8 @@ const elements = {
   clearBtn: document.getElementById("clearBtn"),
   randomBtn: document.getElementById("randomBtn"),
   soundBtn: document.getElementById("soundBtn"),
+  startGameBtn: document.getElementById("startGameBtn"),
+
   centerTitle: null,
   centerSubtitle: null,
   countdown: null
@@ -84,6 +86,7 @@ const runtime = {
 async function init() {
   if (!api.token || !api.gameSlug) {
     setBootstrapError("Missing token or gameSlug.");
+    updateStartButton("Missing credentials", true);
     return;
   }
 
@@ -94,8 +97,8 @@ async function init() {
   bindEvents();
   enterAwaitingPaymentState();
   renderAll();
-  startRoundLoop();
   startLatencyLoop();
+
   await syncWalletState();
 }
 
@@ -185,6 +188,9 @@ function segmentPosition(index) {
 }
 
 function bindEvents() {
+
+
+
   elements.chipRail.addEventListener("click", (event) => {
     const chipButton = event.target.closest("[data-chip]");
     if (!chipButton) {
@@ -206,6 +212,13 @@ function bindEvents() {
     placeBet(segmentButton.dataset.segmentId, segmentButton);
   });
 
+  elements.startGameBtn?.addEventListener("click", async () => {
+    if (state.roundPaid) {
+      setMessage("Round already active. Place your bets!");
+      return;
+    }
+    await startPaidRound();
+  });
 
   elements.clearBtn.addEventListener("click", clearBets);
   elements.repeatBtn.addEventListener("click", repeatBets);
@@ -215,12 +228,15 @@ function bindEvents() {
   document.querySelectorAll(".rail-btn").forEach((button) => {
     button.addEventListener("click", () => handleSideAction(button.dataset.panel));
   });
+
+
 }
 
 async function syncWalletState() {
   if (!api.token) {
     setEntryStatus("Missing access token.", "error");
     setMessage("Tapori wallet is not connected yet.");
+    updateStartButton("Connect Wallet", true);
     renderEntryPanel();
     return;
   }
@@ -228,6 +244,7 @@ async function syncWalletState() {
   if (!api.gameSlug) {
     setEntryStatus("Missing game slug.", "error");
     setMessage("Game configuration is unavailable.");
+    updateStartButton("Configure Game", true);
     renderEntryPanel();
     return;
   }
@@ -235,21 +252,26 @@ async function syncWalletState() {
   try {
     const response = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
     syncRemoteState(response);
+    renderWallet();
+    updateStartButton();
 
     if (!state.game?.isActive) {
       state.authReady = false;
       setEntryStatus("This game is inactive.", "warn");
       setMessage("This game is currently inactive.");
+      updateStartButton("Game Inactive", true);
       renderAll();
       return;
     }
 
     state.authReady = true;
+    setMessage("Wallet connected. Click 'Start Game' to begin.");
     renderAll();
-    await startPaidRound();
+
   } catch (error) {
     state.authReady = false;
     setMessage("Could not reach the Tapori backend.");
+    updateStartButton("Retry Connection", false);
     renderAll();
   }
 }
@@ -259,31 +281,33 @@ async function startPaidRound() {
     return;
   }
 
-  if (!api.token) {
-    setEntryStatus("Tapori access token is missing. Connect the app login token first.", "error");
-    return;
-  }
-
-  if (!api.gameSlug) {
-    setEntryStatus("Game slug is missing.", "error");
+  if (!api.token || !api.gameSlug) {
+    setMessage("Wallet not connected. Please refresh.");
+    updateStartButton("Connect Wallet", true);
     return;
   }
 
   if (!state.playCost || !state.game) {
+    setMessage("Loading game configuration...");
     await syncWalletState();
-    if (!state.playCost || !state.game) {
-      return;
-    }
+    if (!state.playCost || !state.game) return;
   }
 
   if (!state.game.isActive) {
     setEntryStatus("This game is inactive.", "warn");
     setMessage("This game is currently inactive.");
+    updateStartButton("Game Inactive", true);
+    return;
+  }
+
+  if (state.balance < state.playCost) {
+    setMessage(`Insufficient coins. Need ${formatCompact(state.playCost)}, have ${formatCompact(state.balance)}.`);
     return;
   }
 
   state.isStartingRound = true;
-  setMessage(`Charging ${state.playCost} Tapori coins for round ${state.round}...`);
+  updateStartButton("Starting...", true);
+  setMessage(`Charging ${formatCompact(state.playCost)} Tapori coins for round ${state.round}...`);
 
   try {
     const response = await apiRequest("/game/play", {
@@ -294,19 +318,25 @@ async function startPaidRound() {
       })
     });
 
-    syncRemoteState(response);
+    syncRemoteState(response); // Updates state.balance from backend
     state.roundPaid = true;
     state.isPlaying = true;
     state.isBettingOpen = true;
     state.countdown = ROUND_DURATION;
     state.currentWinner = null;
     state.committedBets = buildEmptyBetMap();
+
     clearHighlights();
     setActionButtonsDisabled(false);
+    updateStartButton("Round Active", true);
     setMessage("Round unlocked. Place your bets before the timer ends.");
+
     renderAll();
+    startRoundLoop(); // Now start the countdown timer
+
   } catch (error) {
     setMessage(error.message || "Unable to start the paid round.");
+    updateStartButton("Retry Start", false);
   } finally {
     state.isStartingRound = false;
     renderAll();
@@ -507,8 +537,10 @@ function drawWinningSegment() {
 async function resolveRound(winner) {
   state.currentWinner = winner.id;
 
+  // Calculate winnings
   const winningBet = state.committedBets[winner.id] || 0;
   const prize = winningBet * winner.multiplier;
+
   if (prize > 0) {
     state.balance += prize;
     state.todayProfit += prize - state.totalBet;
@@ -518,6 +550,7 @@ async function resolveRound(winner) {
     setMessage(`${winner.name} won. No hit this round.`);
   }
 
+  // Update history
   state.history.unshift({
     id: winner.id,
     emoji: winner.emoji,
@@ -526,23 +559,28 @@ async function resolveRound(winner) {
   });
   state.history = state.history.slice(0, 12);
 
+  // Submit result to backend
   await endGame(prize > 0 ? "win" : "lose");
+
+  // Reset bets and render
   resetOpenBets();
   renderAll();
   persistState();
 
-  window.setTimeout(startNextRound, RESULT_DELAY);
+  // After delay, return to awaiting payment state (manual start for next round)
+  window.setTimeout(() => {
+    state.round += 1; // Increment round counter
+    enterAwaitingPaymentState();
+    updateTrendCards();
+    updateStartButton(); // Re-enable Start button
+    setMessage("Round complete. Click 'Start Game' for next round.");
+    renderAll();
+    persistState();
+  }, RESULT_DELAY);
 }
 
-async function startNextRound() {
-  state.round += 1;
-  enterAwaitingPaymentState();
-  updateTrendCards();
-  setMessage("Starting next round...");
-  renderAll();
-  persistState();
-  await startPaidRound();
-}
+
+
 
 function enterAwaitingPaymentState() {
   state.roundPaid = false;
@@ -653,12 +691,27 @@ function renderTotals() {
 }
 
 function renderWallet() {
-  elements.balanceValue.textContent = formatCompact(state.balance);
+  const displayBalance = state.walletCoins !== null ? state.walletCoins : state.balance;
+
+  elements.balanceValue.textContent = formatCompact(displayBalance);
   elements.profitValue.textContent = formatSigned(state.todayProfit);
   elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
+
+  const walletEl = document.getElementById("walletCoinsValue");
+  const playCostEl = document.getElementById("playCostValue");
+  if (walletEl) walletEl.textContent = formatCompact(state.walletCoins ?? state.balance);
+  if (playCostEl) playCostEl.textContent = state.playCost ? formatCompact(state.playCost) : "--";
+
+  updateStartButton();
 }
 
-
+function renderEntryPanel() {
+  const walletEl = document.getElementById("walletCoinsValue");
+  const playCostEl = document.getElementById("playCostValue");
+  if (walletEl) walletEl.textContent = formatCompact(state.walletCoins ?? "--");
+  if (playCostEl) playCostEl.textContent = state.playCost ? formatCompact(state.playCost) : "--";
+  updateStartButton();
+}
 
 function renderHistory() {
   if (!state.history.length) {
@@ -703,6 +756,25 @@ function setEntryStatus() { }
 function setBootstrapError(message) {
   setMessage(message);
   setActionButtonsDisabled(true);
+}
+
+function updateStartButton(text, disabled) {
+  const btn = elements.startGameBtn;
+  if (!btn) return;
+
+  if (text) {
+    btn.textContent = text;
+  } else if (!state.authReady) {
+    btn.textContent = "Connect Wallet to Start";
+  } else if (state.roundPaid) {
+    btn.textContent = "Round Active";
+  } else if (!state.playCost) {
+    btn.textContent = "Loading...";
+  } else {
+    btn.textContent = `Start Round (${formatCompact(state.playCost)} coins)`;
+  }
+
+  btn.disabled = disabled ?? !state.authReady || state.roundPaid || !state.playCost;
 }
 
 function animateChip(button, amount) {
