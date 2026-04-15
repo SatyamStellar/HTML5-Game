@@ -125,7 +125,7 @@ function buildChipRail() {
     return `
       <button class="chip-btn ${activeClass}" data-chip="${chip}" ${disabledAttr}>
         <span>🪙</span>
-        ${formatCompact(chip)}
+        ${formatNumber(chip)}
       </button>
     `;
   }).join("");
@@ -262,7 +262,7 @@ async function startPaidRound() {
   state.isStartingRound = true;
   state.pendingChipStart = chipCost;
   renderChipRail();
-  setMessage(`Charging ${formatCompact(chipCost)} Tapori coins...`);
+  setMessage(`Charging ${formatNumber(chipCost)} Tapori coins...`);
 
   try {
     const walletResponse = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
@@ -340,7 +340,7 @@ function placeBet(segmentId, button) {
   state.bets[segmentId] += state.selectedChip;
   state.repeatBets[segmentId] = state.bets[segmentId];
 
-  setMessage(`${segmentName(segmentId)} received ${formatCompact(state.selectedChip)} coins.`);
+  setMessage(`${segmentName(segmentId)} received ${formatNumber(state.selectedChip)} coins.`);
   renderAll();
   persistState();
 
@@ -441,7 +441,7 @@ async function resolveRound(winner) {
   state.todayProfit += rewardGranted - state.roundBudget;
 
   if (rewardGranted > 0) {
-    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatCompact(rewardGranted)} coins.`);
+    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatNumber(rewardGranted)} coins.`);
   } else {
     setMessage(`${winner.name} won. No hit this round.`);
   }
@@ -537,14 +537,14 @@ function renderSegments() {
     const segmentPool = myBet + simulatedOthers;
     totalPool += segmentPool;
 
-    button.querySelector(`[data-pool="${segment.id}"]`).textContent = formatCompact(segmentPool);
-    button.querySelector(`[data-mybet="${segment.id}"]`).textContent = `You ${formatCompact(myBet)}`;
+    button.querySelector(`[data-pool="${segment.id}"]`).textContent = formatNumber(segmentPool);
+    button.querySelector(`[data-mybet="${segment.id}"]`).textContent = `You ${formatNumber(myBet)}`;
     button.classList.toggle("active", state.currentWinner === segment.id);
     button.classList.toggle("winner", state.currentWinner === segment.id);
     button.disabled = !state.isBettingOpen;
   });
 
-  elements.totalPool.textContent = formatCompact(totalPool);
+  elements.totalPool.textContent = formatNumber(totalPool);
 }
 
 function renderCenter() {
@@ -567,8 +567,8 @@ function renderCenter() {
 }
 
 function renderTotals() {
-  elements.myTotalBet.textContent = formatCompact(state.totalBet);
-  elements.selectedChip.textContent = formatCompact(state.selectedChip);
+  elements.myTotalBet.textContent = formatNumber(state.totalBet);
+  elements.selectedChip.textContent = formatNumber(state.selectedChip);
 }
 
 function renderWallet() {
