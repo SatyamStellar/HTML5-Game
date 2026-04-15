@@ -335,7 +335,7 @@ async function startPaidRound() {
 function enableOfflineMode() {
   state.authReady = true;
   state.game = { isActive: true, coinCost: state.playCost || CHIPS[0] };
-  state.playCost = state.game.coinCost;
+  state.playCost = state.game.coinCost || CHIPS[0];
   state.walletCoins = state.walletCoins ?? Math.max(state.balance, state.playCost * 10);
   state.balance = Math.max(state.balance, state.walletCoins);
   setMessage("Offline mode active. Click 'Start Game' to play.");
@@ -786,20 +786,21 @@ function setBootstrapError(message) {
 function updateStartButton(text, disabled) {
   const btn = elements.startGameBtn;
   if (!btn) return;
+  const resolvedPlayCost = state.playCost || state.game?.coinCost || state.game?.playCost || CHIPS[0];
 
   if (text) {
     btn.textContent = text;
+  } else if (state.isStartingRound) {
+    btn.textContent = "Starting...";
   } else if (!state.authReady) {
     btn.textContent = "Connect Wallet to Start";
   } else if (state.roundPaid) {
     btn.textContent = "Round Active";
-  } else if (!state.playCost) {
-    btn.textContent = "Loading...";
   } else {
-    btn.textContent = `Start Round (${formatCompact(state.playCost)} coins)`;
+    btn.textContent = `Tap To Play (${formatCompact(resolvedPlayCost)} coins)`;
   }
 
-  btn.disabled = disabled ?? (!state.authReady || state.roundPaid || !state.playCost);
+  btn.disabled = disabled ?? (!state.authReady || state.roundPaid || state.isStartingRound);
 }
 
 function animateChip(button, amount) {
@@ -924,7 +925,7 @@ function syncRemoteState(response) {
 
   if (response.game) {
     state.game = response.game;
-    state.playCost = response.game.coinCost || response.game.playCost || 0;
+    state.playCost = response.game.coinCost || response.game.playCost || CHIPS[0];
   }
 
   if (response.playId) {
