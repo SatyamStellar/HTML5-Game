@@ -84,12 +84,6 @@ const runtime = {
 };
 
 async function init() {
-  if (!api.token || !api.gameSlug) {
-    setBootstrapError("Missing token or gameSlug.");
-    updateStartButton("Missing credentials", true);
-    return;
-  }
-
   loadState();
   ensureEmptyBets();
   buildChipRail();
@@ -98,6 +92,12 @@ async function init() {
   enterAwaitingPaymentState();
   renderAll();
   startLatencyLoop();
+
+  if (!api.token || !api.gameSlug) {
+    enableOfflineMode();
+    renderAll();
+    return;
+  }
 
   await syncWalletState();
 }
@@ -188,9 +188,6 @@ function segmentPosition(index) {
 }
 
 function bindEvents() {
-
-
-
   elements.chipRail.addEventListener("click", (event) => {
     const chipButton = event.target.closest("[data-chip]");
     if (!chipButton) {
@@ -228,24 +225,18 @@ function bindEvents() {
   document.querySelectorAll(".rail-btn").forEach((button) => {
     button.addEventListener("click", () => handleSideAction(button.dataset.panel));
   });
-
-
 }
 
 async function syncWalletState() {
   if (!api.token) {
-    setEntryStatus("Missing access token.", "error");
-    setMessage("Tapori wallet is not connected yet.");
-    updateStartButton("Connect Wallet", true);
-    renderEntryPanel();
+    enableOfflineMode();
+    renderAll();
     return;
   }
 
   if (!api.gameSlug) {
-    setEntryStatus("Missing game slug.", "error");
-    setMessage("Game configuration is unavailable.");
-    updateStartButton("Configure Game", true);
-    renderEntryPanel();
+    enableOfflineMode();
+    renderAll();
     return;
   }
 
@@ -269,9 +260,8 @@ async function syncWalletState() {
     renderAll();
 
   } catch (error) {
-    state.authReady = false;
-    setMessage("Could not reach the Tapori backend.");
-    updateStartButton("Retry Connection", false);
+    enableOfflineMode();
+    setMessage("Could not reach the Tapori backend. Offline mode active.");
     renderAll();
   }
 }
@@ -282,8 +272,7 @@ async function startPaidRound() {
   }
 
   if (!api.token || !api.gameSlug) {
-    setMessage("Wallet not connected. Please refresh.");
-    updateStartButton("Connect Wallet", true);
+    startLocalRound();
     return;
   }
 
@@ -335,12 +324,50 @@ async function startPaidRound() {
     startRoundLoop(); // Now start the countdown timer
 
   } catch (error) {
-    setMessage(error.message || "Unable to start the paid round.");
-    updateStartButton("Retry Start", false);
+    enableOfflineMode();
+    startLocalRound();
   } finally {
     state.isStartingRound = false;
     renderAll();
   }
+}
+
+function enableOfflineMode() {
+  state.authReady = true;
+  state.game = { isActive: true, coinCost: state.playCost || CHIPS[0] };
+  state.playCost = state.game.coinCost;
+  state.walletCoins = state.walletCoins ?? Math.max(state.balance, state.playCost * 10);
+  state.balance = Math.max(state.balance, state.walletCoins);
+  setMessage("Offline mode active. Click 'Start Game' to play.");
+  updateStartButton();
+}
+
+function startLocalRound() {
+  if (!state.playCost) {
+    enableOfflineMode();
+  }
+
+  if (state.balance < state.playCost) {
+    setMessage(`Insufficient coins. Need ${formatCompact(state.playCost)}, have ${formatCompact(state.balance)}.`);
+    return;
+  }
+
+  state.balance -= state.playCost;
+  state.walletCoins = state.balance;
+  state.roundPaid = true;
+  state.isPlaying = true;
+  state.isBettingOpen = true;
+  state.countdown = ROUND_DURATION;
+  state.currentWinner = null;
+  state.committedBets = buildEmptyBetMap();
+
+  clearHighlights();
+  setActionButtonsDisabled(false);
+  updateStartButton("Round Active", true);
+  setMessage("Round unlocked. Place your bets before the timer ends.");
+  renderAll();
+  persistState();
+  startRoundLoop();
 }
 
 function placeBet(segmentId, button) {
@@ -907,6 +934,9 @@ function syncRemoteState(response) {
 
 async function endGame(result) {
   if (!state.isPlaying || !api.gameSlug) {
+    state.isPlaying = false;
+    state.playId = null;
+    state.walletCoins = state.balance;
     return null;
   }
 
