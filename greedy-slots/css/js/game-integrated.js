@@ -691,9 +691,7 @@ function renderTotals() {
 }
 
 function renderWallet() {
-  const displayBalance = state.walletCoins !== null ? state.walletCoins : state.balance;
-
-  elements.balanceValue.textContent = formatCompact(displayBalance);
+  elements.balanceValue.textContent = formatCompact(state.balance);
   elements.profitValue.textContent = formatSigned(state.todayProfit);
   elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
 
@@ -879,13 +877,19 @@ function loadState() {
 }
 
 function syncRemoteState(response) {
+  const shouldSyncBalance = !state.roundPaid && !state.isPlaying && state.totalBet === 0;
+
   if (response.user) {
     state.user = response.user;
     state.walletCoins = response.user.coins;
-    state.balance = response.user.coins;
+    if (shouldSyncBalance) {
+      state.balance = response.user.coins;
+    }
   } else if (typeof response.coins === "number") {
     state.walletCoins = response.coins;
-    state.balance = response.coins;
+    if (shouldSyncBalance) {
+      state.balance = response.coins;
+    }
     state.user = state.user
       ? { ...state.user, coins: response.coins }
       : { id: null, coins: response.coins };
