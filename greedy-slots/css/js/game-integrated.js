@@ -59,10 +59,7 @@ const elements = {
   selectedChip: document.getElementById("selectedChip"),
   balanceValue: document.getElementById("balanceValue"),
   profitValue: document.getElementById("profitValue"),
-  walletCoinsValue: document.getElementById("walletCoinsValue"),
-  playCostValue: document.getElementById("playCostValue"),
-  playRoundBtn: document.getElementById("playRoundBtn"),
-  entryStatus: document.getElementById("entryStatus"),
+
   leftTrendValue: document.getElementById("leftTrendValue"),
   leftTrendName: document.getElementById("leftTrendName"),
   rightTrendValue: document.getElementById("rightTrendValue"),
@@ -209,7 +206,7 @@ function bindEvents() {
     placeBet(segmentButton.dataset.segmentId, segmentButton);
   });
 
-  elements.playRoundBtn.addEventListener("click", startPaidRound);
+
   elements.clearBtn.addEventListener("click", clearBets);
   elements.repeatBtn.addEventListener("click", repeatBets);
   elements.randomBtn.addEventListener("click", luckyPick);
@@ -248,13 +245,12 @@ async function syncWalletState() {
     }
 
     state.authReady = true;
-    setEntryStatus(`Wallet connected. ${state.playCost} Tapori coins will be charged every time the user starts a new round.`, "ready");
     renderAll();
+    await startPaidRound();
   } catch (error) {
     state.authReady = false;
-    setEntryStatus(error.message || "Failed to load wallet state.", "error");
     setMessage("Could not reach the Tapori backend.");
-    renderEntryPanel();
+    renderAll();
   }
 }
 
@@ -287,8 +283,7 @@ async function startPaidRound() {
   }
 
   state.isStartingRound = true;
-  renderEntryPanel();
-  setEntryStatus(`Charging ${state.playCost} Tapori coins for round ${state.round}...`, "warn");
+  setMessage(`Charging ${state.playCost} Tapori coins for round ${state.round}...`);
 
   try {
     const response = await apiRequest("/game/play", {
@@ -308,19 +303,13 @@ async function startPaidRound() {
     state.committedBets = buildEmptyBetMap();
     clearHighlights();
     setActionButtonsDisabled(false);
-    setEntryStatus(
-      `Round unlocked. ${state.playCost} Tapori coins were deducted from the backend wallet.`,
-      "ready"
-    );
     setMessage("Round unlocked. Place your bets before the timer ends.");
     renderAll();
   } catch (error) {
-    const tone = error.status === 402 ? "warn" : "error";
-    setEntryStatus(error.message || "Unable to charge Tapori coins for this round.", tone);
     setMessage(error.message || "Unable to start the paid round.");
   } finally {
     state.isStartingRound = false;
-    renderEntryPanel();
+    renderAll();
   }
 }
 
@@ -545,13 +534,14 @@ async function resolveRound(winner) {
   window.setTimeout(startNextRound, RESULT_DELAY);
 }
 
-function startNextRound() {
+async function startNextRound() {
   state.round += 1;
   enterAwaitingPaymentState();
   updateTrendCards();
-  setMessage("Pay Tapori coins again to unlock the next round.");
+  setMessage("Starting next round...");
   renderAll();
   persistState();
+  await startPaidRound();
 }
 
 function enterAwaitingPaymentState() {
@@ -608,7 +598,6 @@ function renderAll() {
   renderCenter();
   renderTotals();
   renderWallet();
-  renderEntryPanel();
   renderHistory();
   renderLeaderboard();
 }
@@ -669,17 +658,7 @@ function renderWallet() {
   elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
 }
 
-function renderEntryPanel() {
-  elements.walletCoinsValue.textContent =
-    typeof state.walletCoins === "number" ? formatCompact(state.walletCoins) : "--";
-  elements.playCostValue.textContent = state.playCost ? formatCompact(state.playCost) : "--";
-  elements.playRoundBtn.disabled = state.isStartingRound || !state.authReady || state.roundPaid;
-  elements.playRoundBtn.textContent = state.roundPaid
-    ? "Round Unlocked"
-    : state.isStartingRound
-      ? "Charging..."
-      : "Pay To Play Round";
-}
+
 
 function renderHistory() {
   if (!state.history.length) {
@@ -719,15 +698,10 @@ function setMessage(text) {
   elements.messageLine.textContent = text;
 }
 
-function setEntryStatus(text, tone = "warn") {
-  elements.entryStatus.textContent = text;
-  elements.entryStatus.dataset.tone = tone;
-}
+function setEntryStatus() { }
 
 function setBootstrapError(message) {
-  setEntryStatus(message, "error");
   setMessage(message);
-  elements.playRoundBtn.disabled = true;
   setActionButtonsDisabled(true);
 }
 
@@ -873,13 +847,13 @@ async function endGame(result) {
     state.isPlaying = false;
     state.playId = null;
     if (response.rewardGranted > 0) {
-      setEntryStatus(`Reward credited: ${formatCompact(response.rewardGranted)} Tapori coins.`, "ready");
+      setMessage(`Reward credited: ${formatCompact(response.rewardGranted)} Tapori coins.`);
     }
     return response;
   } catch (error) {
     state.isPlaying = false;
     state.playId = null;
-    setEntryStatus(error.message || "Failed to submit game result.", "error");
+    setMessage(error.message || "Failed to submit game result.");
     return null;
   }
 }
