@@ -592,9 +592,15 @@
             const BOT = 2;
             
             // Backend Integration
-            const urlParams = new URLSearchParams(window.location.search);
-            const token = urlParams.get('token');
-            const gameSlug = urlParams.get('gameSlug') || 'snake-and-ladder';
+            function getFirstParamValue(key) {
+                const url = new URL(window.location.href);
+                const values = url.searchParams.getAll(key).map((value) => value.trim()).filter(Boolean);
+                return values.length > 0 ? values[0] : "";
+            }
+
+            const token = getFirstParamValue('token');
+            const rawSlug = getFirstParamValue('gameSlug');
+            const gameSlug = rawSlug ? rawSlug.toLowerCase() : 'snake-and-ladder';
             const BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
                 ? 'http://localhost:5001/api' 
                 : 'https://tapori.onrender.com/api';
