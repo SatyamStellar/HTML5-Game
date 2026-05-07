@@ -20,7 +20,9 @@
 
 html,
 body {
-  min-height: 100%;
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 body {
@@ -29,7 +31,7 @@ body {
     radial-gradient(circle at top, rgba(255, 255, 255, 0.35), transparent 28%),
     linear-gradient(180deg, var(--bg-top) 0%, #ffd145 42%, #ff8f4d 72%, var(--bg-bottom) 100%);
   color: var(--ink);
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 button {
@@ -39,21 +41,27 @@ button {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
   display: flex;
   justify-content: center;
-  padding: 12px;
+  padding: 6px;
+  overflow: hidden;
 }
 
 .game-frame {
   width: min(100%, 920px);
-  display: grid;
-  gap: 16px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
 }
 
 .topbar {
   display: grid;
-  gap: 12px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .statusbar {
@@ -174,13 +182,18 @@ button {
 .wheel-section {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.25) 0%, rgba(255, 255, 255, 0.08) 100%);
   border-radius: 36px;
-  padding: 18px 18px 16px;
+  padding: 8px 12px 8px;
   box-shadow: var(--shadow);
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .wheel-board {
   position: relative;
-  min-height: 580px;
+  flex: 1;
+  min-height: 0;
   display: grid;
   place-items: center;
 }
@@ -400,10 +413,11 @@ button {
 
 .control-panel {
   background: linear-gradient(180deg, #d81f43 0%, #ba1234 100%);
-  border-radius: 30px;
-  padding: 18px;
+  border-radius: 20px;
+  padding: 8px 12px;
   box-shadow: var(--shadow);
   color: var(--white);
+  flex-shrink: 0;
 }
 
 .wallet-card {
@@ -554,7 +568,8 @@ button {
   }
 
   .wheel-board {
-    min-height: 460px;
+    min-height: 0;
+    flex: 1;
   }
 
   .betting-wheel {
@@ -640,7 +655,8 @@ button {
   }
 
   .wheel-board {
-    min-height: 340px;
+    min-height: 0;
+    flex: 1;
   }
 
   .segment-btn {
@@ -713,7 +729,7 @@ button {
   .totals-bar,
   .wallet-row,
   .leaderboard {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .multiplier-strip,
@@ -770,7 +786,8 @@ button {
   }
 
   .wheel-board {
-    min-height: 300px;
+    min-height: 0;
+    flex: 1;
   }
 
   .segment-btn {
