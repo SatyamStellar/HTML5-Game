@@ -81,6 +81,7 @@ const runtime = {
 
 async function init() {
   if (!api.token || !api.gameSlug) {
+    setOverlayMsg("Missing token or gameSlug.");
     setBootstrapError("Missing token or gameSlug.");
     return;
   }
@@ -90,6 +91,7 @@ async function init() {
   buildChipRail();
   buildWheel();
   bindEvents();
+  bindStartButton();
   enterAwaitingPaymentState();
   renderAll();
   startLatencyLoop();
@@ -216,13 +218,19 @@ function bindEvents() {
 async function syncWalletState() {
   if (!api.token) {
     state.authReady = false;
+    setOverlayMsg("No token found. Please reopen from the app.");
+    dismissOverlay(3000);
     return;
   }
 
   if (!api.gameSlug) {
     state.authReady = false;
+    setOverlayMsg("Game not identified. Missing gameSlug.");
+    dismissOverlay(3000);
     return;
   }
+
+  setOverlayMsg("Loading your wallet…");
 
   try {
     const response = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
@@ -231,19 +239,24 @@ async function syncWalletState() {
 
     if (!state.game?.isActive) {
       state.authReady = false;
-      setEntryStatus("This game is inactive.", "warn");
-      setMessage("This game is currently inactive.");
+      setOverlayMsg("This game is currently inactive.");
+      setMsgBar("This game is currently inactive.");
+      dismissOverlay(2500);
       renderAll();
       return;
     }
 
     state.authReady = true;
-    setMessage("Wallet connected. Select a chip to start.");
+    setMsgBar("✅ Wallet connected! Select a chip & press Start Round.");
+    enableStartButton();
+    dismissOverlay(600);
     renderAll();
 
   } catch (error) {
     state.authReady = false;
-    setMessage("Could not reach the Tapori backend.");
+    setOverlayMsg("⚠️ Could not reach the server. Check connection.");
+    setMsgBar("Could not reach the Tapori backend.");
+    dismissOverlay(3000);
     renderAll();
   }
 }
@@ -254,27 +267,28 @@ async function startPaidRound() {
   }
 
   if (!api.token || !api.gameSlug) {
-    setMessage("Wallet not connected. Please refresh.");
+    setMsgBar("Wallet not connected. Please refresh.");
     return { error: "Wallet not connected" };
   }
 
   const chipCost = state.selectedChip;
   state.isStartingRound = true;
   state.pendingChipStart = chipCost;
+  setStartButtonLoading(true, `Charging ${formatNumber(chipCost)} coins…`);
   renderChipRail();
-  setMessage(`Charging ${formatNumber(chipCost)} Tapori coins...`);
+  setMsgBar(`⏳ Charging ${formatNumber(chipCost)} Tapori coins…`);
 
   try {
     const walletResponse = await apiRequest(`/game/init?gameSlug=${encodeURIComponent(api.gameSlug)}`);
     syncRemoteState(walletResponse);
 
     if (!state.game?.isActive) {
-      setMessage("This game is currently inactive.");
+      setMsgBar("This game is currently inactive.");
       return { error: "Game inactive" };
     }
 
     if ((state.walletCoins ?? 0) < chipCost) {
-      setMessage("Insufficient balance");
+      setMsgBar("⚠️ Insufficient balance.");
       renderAll();
       return { error: "Insufficient balance" };
     }
@@ -314,15 +328,22 @@ async function startPaidRound() {
 
     clearHighlights();
     setActionButtonsDisabled(false);
-    setMessage("Round unlocked. Place your bets before the timer ends.");
+    setMsgBar("🎯 Round unlocked! Pick a dish to bet on.");
+    setStartButtonLoading(false, "⏳ Round In Progress…");
+    setStartButtonEnabled(false);
 
     renderAll();
     startRoundLoop();
     return { success: true, coins: state.balance };
 
   } catch (error) {
-    setMessage(error?.message === "Insufficient balance" ? "Insufficient balance" : (error.message || "Unable to start the paid round."));
-    return { error: error?.message === "Insufficient balance" ? "Insufficient balance" : (error.message || "Unable to start the paid round.") };
+    const errMsg = error?.message === "Insufficient balance"
+      ? "⚠️ Insufficient balance."
+      : (error.message || "Unable to start the paid round.");
+    setMsgBar(errMsg);
+    setStartButtonLoading(false, "🎰 Start Round");
+    enableStartButton();
+    return { error: errMsg };
   } finally {
     state.isStartingRound = false;
     state.pendingChipStart = null;
@@ -464,7 +485,8 @@ async function resolveRound(winner) {
     state.round += 1;
     enterAwaitingPaymentState();
     updateTrendCards();
-    setMessage("Round complete. Select a chip to start the next round.");
+    setMsgBar("Round complete. Press 🎰 Start Round to play again!");
+    enableStartButton();
     renderAll();
     persistState();
   }, RESULT_DELAY);
@@ -829,14 +851,72 @@ async function endGame(result) {
     state.isPlaying = false;
     state.playId = null;
     if (response.rewardGranted > 0) {
-      setMessage(`Reward credited: ${formatCompact(response.rewardGranted)} Tapori coins.`);
+      setMsgBar(`🎉 Reward: +${formatCompact(response.rewardGranted)} coins!`);
     }
     return response;
   } catch (error) {
     state.isPlaying = false;
     state.playId = null;
-    setMessage(error.message || "Failed to submit game result.");
+    setMsgBar(error.message || "Failed to submit game result.");
     return null;
+  }
+}
+
+// ── Overlay helpers ──────────────────────────────────────────
+function setOverlayMsg(msg) {
+  const el = document.getElementById("overlayMsg");
+  if (el) el.textContent = msg;
+}
+
+function dismissOverlay(delayMs = 0) {
+  setTimeout(() => {
+    const overlay = document.getElementById("loading-overlay");
+    if (overlay) overlay.classList.add("hidden");
+  }, delayMs);
+}
+
+// ── MsgBar helper ────────────────────────────────────────────
+function setMsgBar(msg) {
+  const el = document.getElementById("msgBar");
+  if (el) el.textContent = msg;
+  // Also update the wheel message line
+  if (elements.messageLine) elements.messageLine.textContent = msg;
+}
+
+// ── Start Button helpers ─────────────────────────────────────
+function bindStartButton() {
+  const btn = document.getElementById("startRoundBtn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    if (state.roundPaid || state.isStartingRound) return;
+    await startPaidRound();
+  });
+}
+
+function enableStartButton() {
+  const btn = document.getElementById("startRoundBtn");
+  if (!btn) return;
+  btn.disabled = false;
+  btn.classList.remove("loading");
+  btn.querySelector(".btn-text").textContent = "🎰 Start Round";
+}
+
+function setStartButtonEnabled(enabled) {
+  const btn = document.getElementById("startRoundBtn");
+  if (!btn) return;
+  btn.disabled = !enabled;
+}
+
+function setStartButtonLoading(loading, label = "Loading…") {
+  const btn = document.getElementById("startRoundBtn");
+  if (!btn) return;
+  if (loading) {
+    btn.classList.add("loading");
+    btn.disabled = true;
+    btn.querySelector(".btn-text").textContent = label;
+  } else {
+    btn.classList.remove("loading");
+    btn.querySelector(".btn-text").textContent = label;
   }
 }
 

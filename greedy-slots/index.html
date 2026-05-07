@@ -6,9 +6,138 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Greedy Slots Arena</title>
   <link rel="stylesheet" href="css/style.css" />
+  <style>
+    /* ── Loading Overlay ── */
+    #loading-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 999;
+      background: linear-gradient(160deg, #1a0a2e 0%, #2d1b4e 50%, #1a0a2e 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      transition: opacity 0.5s ease;
+    }
+
+    #loading-overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .overlay-logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #ff824c 0%, #ee375e 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 2rem;
+      font-weight: 900;
+      color: #fff;
+      box-shadow: 0 0 0 8px rgba(238, 55, 94, 0.2), 0 0 30px rgba(238, 55, 94, 0.4);
+      animation: overlayPulse 1.8s ease-in-out infinite;
+    }
+
+    @keyframes overlayPulse {
+      0%, 100% { box-shadow: 0 0 0 8px rgba(238,55,94,0.2), 0 0 30px rgba(238,55,94,0.3); }
+      50%       { box-shadow: 0 0 0 16px rgba(238,55,94,0.1), 0 0 50px rgba(238,55,94,0.5); }
+    }
+
+    .overlay-title {
+      font-family: "Trebuchet MS", sans-serif;
+      font-size: 1.3rem;
+      font-weight: 900;
+      color: #fff;
+      letter-spacing: 0.05em;
+    }
+
+    .overlay-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255,255,255,0.15);
+      border-top-color: #ff824c;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .overlay-msg {
+      font-family: "Trebuchet MS", sans-serif;
+      font-size: 0.85rem;
+      color: rgba(255,255,255,0.55);
+      letter-spacing: 0.03em;
+    }
+
+    /* ── Start Round Button ── */
+    #startRoundBtn {
+      width: 100%;
+      padding: 10px;
+      border-radius: 14px;
+      border: none;
+      background: linear-gradient(180deg, #ff824c 0%, #ee375e 100%);
+      color: #fff;
+      font-family: "Trebuchet MS", sans-serif;
+      font-size: 1rem;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      box-shadow: 0 5px 0 rgba(163,48,55,0.5), 0 8px 20px rgba(238,55,94,0.3);
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 6px;
+      flex-shrink: 0;
+    }
+
+    #startRoundBtn:active { transform: translateY(3px); box-shadow: 0 2px 0 rgba(163,48,55,0.5); }
+    #startRoundBtn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    #startRoundBtn .btn-spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+
+    #startRoundBtn.loading .btn-spinner { display: block; }
+    #startRoundBtn.loading .btn-text { opacity: 0.7; }
+
+    /* ── Message bar inside control panel ── */
+    .msg-bar {
+      text-align: center;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.12);
+      color: #fff;
+      min-height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+  </style>
 </head>
 
 <body>
+  <!-- Loading Overlay -->
+  <div id="loading-overlay">
+    <div class="overlay-logo">GS</div>
+    <div class="overlay-title">Greedy Slots Arena</div>
+    <div class="overlay-spinner"></div>
+    <div class="overlay-msg" id="overlayMsg">Connecting to server…</div>
+  </div>
+
   <div class="app-shell">
     <div class="game-frame">
       <header class="topbar">
@@ -47,7 +176,6 @@
               <span id="leftTrendName">Salad</span>
             </div>
             <div class="recommendation-card">
-              <span class="recommendation-badge">Popular Recommendation</span>
               <strong id="messageLine">Select a chip and place your bets.</strong>
             </div>
             <div class="boost-card align-right">
@@ -83,6 +211,13 @@
             <strong id="profitValue" style="display:none">0</strong>
           </div>
 
+          <button id="startRoundBtn" disabled>
+            <div class="btn-spinner"></div>
+            <span class="btn-text">🎰 Start Round</span>
+          </button>
+
+          <div class="msg-bar" id="msgBar">Connecting to wallet…</div>
+
           <div class="history-panel">
             <div class="history-title">Results</div>
             <div id="historyList" class="history-list" aria-live="polite"></div>
@@ -101,3 +236,4 @@
 </body>
 
 </html>
+
