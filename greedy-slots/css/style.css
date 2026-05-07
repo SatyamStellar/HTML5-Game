@@ -67,7 +67,7 @@ button {
 .statusbar {
   display: grid;
   grid-template-columns: minmax(0, 120px) minmax(0, 1fr) minmax(0, 120px);
-  gap: 12px;
+  gap: 8px;
   align-items: start;
 }
 
@@ -82,13 +82,13 @@ button {
 
 .chip-btn {
   width: 100%;
-  min-height: 58px;
-  border-radius: 18px;
+  min-height: 46px;
+  border-radius: 14px;
   border: 3px solid rgba(41, 49, 77, 0.25);
   background: linear-gradient(180deg, #fff9e0 0%, #f7e19b 100%);
-  box-shadow: 0 8px 0 rgba(97, 78, 33, 0.18);
+  box-shadow: 0 5px 0 rgba(97, 78, 33, 0.18);
   color: var(--ink);
-  font-size: 1.7rem;
+  font-size: 1rem;
   font-weight: 800;
 }
 
@@ -99,8 +99,8 @@ button {
 
 .brand-block,
 .status-pill {
-  border-radius: 24px;
-  padding: 12px 16px;
+  border-radius: 16px;
+  padding: 8px 12px;
   box-shadow: var(--shadow);
 }
 
@@ -112,26 +112,26 @@ button {
 }
 
 .brand-mark {
-  width: 54px;
-  height: 54px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: linear-gradient(180deg, #ff824c 0%, #ee375e 100%);
   color: var(--white);
-  font-size: 1.8rem;
+  font-size: 1.2rem;
   box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.15);
 }
 
 .brand-block h1 {
-  font-size: clamp(1.2rem, 1.8vw, 1.7rem);
+  font-size: clamp(0.85rem, 1.8vw, 1.7rem);
   line-height: 1;
 }
 
 .brand-block p {
-  margin-top: 4px;
+  margin-top: 2px;
   color: rgba(41, 49, 77, 0.72);
-  font-size: 0.92rem;
+  font-size: 0.72rem;
 }
 
 .status-pill {
@@ -175,8 +175,12 @@ button {
 }
 
 .game-main {
-  display: grid;
-  gap: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .wheel-section {
@@ -366,16 +370,16 @@ button {
 .total-box,
 .wallet-card {
   background: linear-gradient(180deg, #fffdf0 0%, #ffe9a8 100%);
-  padding: 14px 16px;
+  padding: 8px 10px;
   display: grid;
-  gap: 5px;
+  gap: 3px;
 }
 
 .boost-card strong,
 .recommendation-card strong,
 .wallet-card strong,
 .total-box strong {
-  font-size: 1.45rem;
+  font-size: 1.1rem;
 }
 
 .boost-label,
@@ -413,11 +417,12 @@ button {
 
 .control-panel {
   background: linear-gradient(180deg, #d81f43 0%, #ba1234 100%);
-  border-radius: 20px;
-  padding: 8px 12px;
+  border-radius: 16px;
+  padding: 6px 10px;
   box-shadow: var(--shadow);
   color: var(--white);
   flex-shrink: 0;
+  overflow: hidden;
 }
 
 .wallet-card {
@@ -827,4 +832,142 @@ button {
   .countdown {
     font-size: 1.28rem;
   }
+}
+
+/* ── ABSOLUTE NO-SCROLL on any mobile screen ─────────────────── */
+@media (max-width: 767px) {
+  /* Collapse statusbar to a compact single row */
+  .statusbar {
+    grid-template-columns: auto 1fr auto;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .brand-block {
+    padding: 6px 10px;
+    gap: 7px;
+  }
+
+  .brand-block p { display: none; }
+
+  .status-pill {
+    padding: 6px 10px;
+  }
+
+  .status-pill .label { display: none; }
+
+  .status-pill strong { font-size: 1rem; }
+
+  .chip-rail {
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    grid-auto-columns: minmax(52px, 1fr);
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .chip-btn {
+    min-height: 38px;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    box-shadow: 0 3px 0 rgba(97, 78, 33, 0.18);
+    padding: 4px;
+  }
+
+  .chip-btn span { font-size: 0.85rem; }
+
+  /* Hide space-hungry secondary elements */
+  .leaderboard { display: none; }
+  .history-panel { display: none; }
+  .multiplier-strip { display: none; }
+
+  /* Control panel: only show wallet row + message */
+  .control-panel {
+    padding: 5px 8px;
+    border-radius: 12px;
+  }
+
+  .wallet-row {
+    gap: 6px;
+  }
+
+  .wallet-card {
+    padding: 5px 8px;
+    border-radius: 10px;
+  }
+
+  .wallet-card span { font-size: 0.6rem; }
+  .wallet-card strong { font-size: 0.9rem; }
+
+  /* Totals bar compact */
+  .totals-bar {
+    gap: 6px;
+  }
+
+  .total-box {
+    padding: 5px 8px;
+    border-radius: 10px;
+  }
+
+  .total-box span { font-size: 0.6rem; }
+  .total-box strong { font-size: 0.85rem; }
+
+  /* Recommendation/message card compact */
+  .recommendation-card {
+    padding: 6px 10px;
+    border-radius: 10px;
+  }
+
+  .recommendation-badge { display: none; }
+
+  .recommendation-card strong {
+    font-size: 0.78rem;
+  }
+
+  /* Wheel base smaller */
+  .wheel-base {
+    height: 18px;
+    margin-top: -20px;
+  }
+
+  /* Wheel section no extra padding */
+  .wheel-section {
+    padding: 4px 8px 4px;
+    border-radius: 18px;
+  }
+
+  /* Segment buttons compact */
+  .segment-btn {
+    width: 24%;
+    border-width: 2px;
+    padding: 3px;
+  }
+
+  .segment-btn .emoji { font-size: 0.9rem; }
+  .segment-btn .name  { font-size: 0.52rem; }
+  .segment-btn .odds  { font-size: 0.62rem; }
+  .segment-btn .pool  { display: none; }
+  .segment-total      { display: none; }
+
+  .wheel-center {
+    width: 36%;
+    border-width: 4px;
+    box-shadow: 0 0 0 4px rgba(240, 67, 95, 0.9), 0 8px 14px rgba(163, 48, 55, 0.28);
+  }
+
+  .center-emoji    { font-size: 1.5rem; }
+  .center-title    { font-size: 0.82rem; }
+  .center-subtitle { font-size: 0.6rem; padding: 0 4px; line-height: 1.2; }
+  .countdown       { font-size: 1.1rem; }
+
+  .wheel-center-content { gap: 2px; }
+}
+
+@media (max-height: 680px) and (max-width: 767px) {
+  .topbar { gap: 3px; }
+  .game-frame { gap: 3px; }
+  .app-shell { padding: 3px; }
+  .chip-btn { min-height: 32px; font-size: 0.72rem; }
 }
