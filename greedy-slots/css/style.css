@@ -352,8 +352,19 @@ button {
 
 .multiplier-strip,
 .totals-bar,
+.wallet-row {\n  grid-template-columns: repeat(3, 1fr);\n}
+
 .wallet-row {
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr;
+}
+
+.wallet-card-accent {
+  text-align: center;
+  background: linear-gradient(180deg, #fff7d1 0%, #ffc85a 100%);
+}
+
+.wallet-card-accent strong {
+  font-size: 1.6rem !important;
 }
 
 .boost-card,
