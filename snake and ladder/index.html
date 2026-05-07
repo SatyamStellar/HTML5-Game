@@ -592,26 +592,35 @@
             const BOT = 2;
             
             // Backend Integration
+            const api = {
+                baseUrl: window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                    ? 'http://localhost:5001/api' 
+                    : 'https://tapori.onrender.com/api',
+                token: resolveAccessToken(),
+                gameSlug: resolveGameSlug() || 'snake-and-ladder'
+            };
+
             function getFirstParamValue(key) {
                 const url = new URL(window.location.href);
                 const values = url.searchParams.getAll(key).map((value) => value.trim()).filter(Boolean);
                 return values.length > 0 ? values[0] : "";
             }
 
-            const token = getFirstParamValue('token');
-            const rawSlug = getFirstParamValue('gameSlug');
-            const gameSlug = rawSlug ? rawSlug.toLowerCase() : 'snake-and-ladder';
-            const BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
-                ? 'http://localhost:5001/api' 
-                : 'https://tapori.onrender.com/api';
+            function resolveAccessToken() {
+                return getFirstParamValue("token");
+            }
+
+            function resolveGameSlug() {
+                return getFirstParamValue("gameSlug").toLowerCase();
+            }
 
             async function apiRequest(path, options = {}) {
-                if (!token) throw new Error("Wallet not connected (No token)");
-                const response = await fetch(`${BASE_URL}${path}`, {
+                if (!api.token) throw new Error("Wallet not connected (No token)");
+                const response = await fetch(`${api.baseUrl}${path}`, {
                     ...options,
                     headers: {
                         "Content-Type": "application/json",
-                        "Authorization": `Bearer ${token}`,
+                        "Authorization": `Bearer ${api.token}`,
                         ...(options.headers || {})
                     }
                 });
@@ -924,7 +933,7 @@
                         const res = await apiRequest("/game/play", {
                             method: "POST",
                             body: JSON.stringify({
-                                gameSlug: gameSlug,
+                                gameSlug: api.gameSlug,
                                 coinCost: 50,
                                 playCost: 50,
                                 amount: 50,
@@ -1120,7 +1129,7 @@
                     const res = await apiRequest("/game/result", {
                         method: "POST",
                         body: JSON.stringify({
-                            gameSlug: gameSlug,
+                            gameSlug: api.gameSlug,
                             result: isHumanWinner ? "win" : "lose"
                         })
                     });
@@ -1175,8 +1184,15 @@
             }
 
             async function loadGameData() {
+                if (!api.token) {
+                    el.userCoins.textContent = "--";
+                    setStatus("⚠️ Wallet not connected. Please refresh.", "bot");
+                    el.rollBtn.disabled = true;
+                    return;
+                }
+
                 try {
-                    const data = await apiRequest(`/game/init?gameSlug=${gameSlug}`);
+                    const data = await apiRequest(`/game/init?gameSlug=${api.gameSlug}`);
                     if (data && data.user) {
                         const currentCoins = data.user.coins;
                         el.userCoins.textContent = currentCoins;
@@ -1184,11 +1200,13 @@
                     } else {
                         el.userCoins.textContent = "Err";
                         setStatus("⚠️ API Data: " + JSON.stringify(data), "bot");
+                        el.rollBtn.disabled = true;
                     }
                 } catch (error) {
                     console.error("Failed to load game data:", error);
                     el.userCoins.textContent = "Err";
                     setStatus(`⚠️ ${error.message}`, "bot");
+                    el.rollBtn.disabled = true;
                 }
             }
 
