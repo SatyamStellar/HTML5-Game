@@ -1,624 +1,641 @@
-const STORAGE_KEY = "greedy-slots-arena-state";
+/* ═══════════════════════════════════════════════════════════
+   GREEDY SLOTS — game.js
+   Multi-slot betting, chip selector, start button, API integration
+   ═══════════════════════════════════════════════════════════ */
 
-const SEGMENTS = [
-  { id: "carrot", name: "Carrot", emoji: "🥕", multiplier: 5, hot: true, color: "#ff7950" },
-  { id: "hotdog", name: "Hotdog", emoji: "🌭", multiplier: 10, color: "#ffb84a" },
-  { id: "skewer", name: "Skewer", emoji: "🌶️", multiplier: 15, color: "#ff8e59" },
-  { id: "ham", name: "Ham", emoji: "🍖", multiplier: 25, color: "#f0a25b" },
-  { id: "steak", name: "Steak", emoji: "🥩", multiplier: 45, color: "#eb6e76" },
-  { id: "tomato", name: "Tomato", emoji: "🍅", multiplier: 5, color: "#ff7272" },
-  { id: "corn", name: "Corn", emoji: "🌽", multiplier: 5, color: "#f1c641" },
-  { id: "greens", name: "Greens", emoji: "🥬", multiplier: 5, color: "#5dd48e" }
+'use strict';
+
+// ── Constants ───────────────────────────────────────────────
+const BASE_URL    = 'https://tapori.onrender.com/api';
+const STORAGE_KEY = 'gs-arena-v3';
+const ROUND_DUR   = 12;   // seconds countdown
+
+const SLOTS = [
+  { id: 'carrot', name: 'Carrot', emoji: '🥕', multiplier: 5  },
+  { id: 'hotdog', name: 'Hotdog', emoji: '🌭', multiplier: 10 },
+  { id: 'skewer', name: 'Skewer', emoji: '🌶️', multiplier: 15 },
+  { id: 'ham',    name: 'Ham',    emoji: '🍖', multiplier: 25 },
+  { id: 'steak',  name: 'Steak',  emoji: '🥩', multiplier: 45 },
 ];
 
-const CHIPS = [200, 1000, 5000, 20000, 50000];
-const ROUND_DURATION = 12;
-const RESULT_DELAY = 2400;
+const CHIPS = [
+  { value: 100,   label: '100'  },
+  { value: 200,   label: '200'  },
+  { value: 500,   label: '500'  },
+  { value: 1000,  label: '1K'   },
+  { value: 5000,  label: '5K'   },
+  { value: 10000, label: '10K'  },
+];
 
-const state = {
-  round: 1,
-  balance: 5000,
-  todayProfit: 0,
-  selectedChip: CHIPS[0],
-  bets: {},
-  repeatBets: {},
-  committedBets: {},
-  totalBet: 0,
-  isBettingOpen: true,
-  countdown: ROUND_DURATION,
-  history: [],
-  soundOn: true,
-  currentWinner: null,
-  latency: 168
+// ── Phases ──────────────────────────────────────────────────
+const PHASE = { IDLE: 'idle', BETTING: 'betting', SPINNING: 'spinning', RESULT: 'result' };
+
+// ── State ───────────────────────────────────────────────────
+const S = {
+  phase:        PHASE.IDLE,
+  round:        1,
+  walletCoins:  null,
+  selectedChip: CHIPS[0].value,
+  bets:         {},        // { [slotId]: number }
+  roundPaid:    false,
+  countdown:    ROUND_DUR,
+  history:      [],
+  winnerSlot:   null,
+  isLoading:    false,
+  authReady:    false,
+  game:         null,
+  isPlaying:    false,
 };
 
-const elements = {
-  roundNumber: document.getElementById("roundNumber"),
-  latency: document.getElementById("latency"),
-  chipRail: document.getElementById("chipRail"),
-  bettingWheel: document.getElementById("bettingWheel"),
-  messageLine: document.getElementById("messageLine"),
-  totalPool: document.getElementById("totalPool"),
-  myTotalBet: document.getElementById("myTotalBet"),
-  selectedChip: document.getElementById("selectedChip"),
-  balanceValue: document.getElementById("balanceValue"),
-  profitValue: document.getElementById("profitValue"),
-  leftTrendValue: document.getElementById("leftTrendValue"),
-  leftTrendName: document.getElementById("leftTrendName"),
-  rightTrendValue: document.getElementById("rightTrendValue"),
-  rightTrendName: document.getElementById("rightTrendName"),
-  historyList: document.getElementById("historyList"),
-  leaderboardText: document.getElementById("leaderboardText"),
-  repeatBtn: document.getElementById("repeatBtn"),
-  clearBtn: document.getElementById("clearBtn"),
-  randomBtn: document.getElementById("randomBtn"),
-  soundBtn: document.getElementById("soundBtn"),
-  centerTitle: null,
-  centerSubtitle: null,
-  countdown: null
+// ── API ─────────────────────────────────────────────────────
+const AUTH = {
+  token:    getParam('token'),
+  gameSlug: getParam('gameSlug').toLowerCase(),
 };
 
-const runtime = {
-  roundTimer: null,
-  latencyTimer: null,
-  winnerTimer: null
+// ── DOM refs ─────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const DOM = {
+  overlay:          $('loadingOverlay'),
+  overlayMsg:       $('overlayMsg'),
+  winSplash:        $('winSplash'),
+  winEmoji:         $('winEmoji'),
+  winAmount:        $('winAmount'),
+  roundNumber:      $('roundNumber'),
+  balanceDisplay:   $('balanceDisplay'),
+  phaseBanner:      $('phaseBanner'),
+  phaseTxt:         $('phaseTxt'),
+  slotsGrid:        $('slotsGrid'),
+  totalBetDisplay:  $('totalBetDisplay'),
+  slotsSelected:    $('slotsSelectedDisplay'),
+  potentialDisplay: $('potentialDisplay'),
+  chipRail:         $('chipRail'),
+  startBtn:         $('startBtn'),
 };
 
-function init() {
-  loadState();
+// ── Timers ───────────────────────────────────────────────────
+let roundTimer   = null;
+let spinnerTimer = null;
+let spinStep     = 0;
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+async function init() {
+  restoreLocalState();
+  SLOTS.forEach(sl => { S.bets[sl.id] ??= 0; });
+
   buildChipRail();
-  buildWheel();
-  bindEvents();
-  ensureEmptyBets();
+  buildSlots();
   renderAll();
-  startRoundLoop();
-  startLatencyLoop();
+  setPhase(PHASE.IDLE, 'Select a chip and place your bets');
+
+  if (!AUTH.token || !AUTH.gameSlug) {
+    setOverlay('❌ Missing token or gameSlug');
+    return;
+  }
+
+  setOverlay('Connecting to wallet…');
+  await syncWallet();
 }
 
-function ensureEmptyBets() {
-  SEGMENTS.forEach((segment) => {
-    state.bets[segment.id] ??= 0;
-    state.repeatBets[segment.id] ??= 0;
-    state.committedBets[segment.id] ??= 0;
-  });
-}
-
+// ═══════════════════════════════════════════════════════════
+// UI BUILDERS
+// ═══════════════════════════════════════════════════════════
 function buildChipRail() {
-  elements.chipRail.innerHTML = CHIPS.map((chip) => {
-    const activeClass = chip === state.selectedChip ? "active" : "";
-    return `
-      <button class="chip-btn ${activeClass}" data-chip="${chip}">
-        <span>🪙</span>
-        ${formatCompact(chip)}
-      </button>
-    `;
-  }).join("");
-}
+  DOM.chipRail.innerHTML = CHIPS.map(ch => `
+    <button class="chip-btn${ch.value === S.selectedChip ? ' active' : ''}"
+            data-chip="${ch.value}">
+      <span class="chip-icon">🪙</span>
+      <span class="chip-label">${ch.label}</span>
+    </button>
+  `).join('');
 
-function buildWheel() {
-  elements.bettingWheel.innerHTML = "";
-
-  SEGMENTS.forEach((segment, index) => {
-    const button = document.createElement("button");
-    button.className = `segment-btn ${segment.hot ? "hot" : ""}`;
-    button.dataset.segmentId = segment.id;
-    button.style.left = `${segmentPosition(index).x}%`;
-    button.style.top = `${segmentPosition(index).y}%`;
-    button.innerHTML = `
-      <span class="emoji">${segment.emoji}</span>
-      <span class="name">${segment.name}</span>
-      <span class="odds">${segment.multiplier}x</span>
-      <span class="pool">Pool <strong data-pool="${segment.id}">0</strong></span>
-      <span class="segment-total" data-mybet="${segment.id}">You 0</span>
-    `;
-    elements.bettingWheel.appendChild(button);
-  });
-
-  const center = document.createElement("div");
-  center.className = "wheel-center";
-  center.innerHTML = `
-    <div class="wheel-center-content">
-      <div class="center-emoji">🍽️</div>
-      <div class="center-title" id="centerTitle">Select Time</div>
-      <div class="center-subtitle" id="centerSubtitle">Place bets before the timer ends</div>
-      <div class="countdown" id="countdownValue">${ROUND_DURATION}s</div>
-    </div>
-  `;
-  elements.bettingWheel.appendChild(center);
-
-  elements.centerTitle = document.getElementById("centerTitle");
-  elements.centerSubtitle = document.getElementById("centerSubtitle");
-  elements.countdown = document.getElementById("countdownValue");
-}
-
-function segmentPosition(index) {
-  const positions = [
-    { x: 12, y: 3 },
-    { x: 38, y: -3 },
-    { x: 65, y: 3 },
-    { x: 74, y: 32 },
-    { x: 63, y: 62 },
-    { x: 37, y: 72 },
-    { x: 10, y: 62 },
-    { x: 1, y: 32 }
-  ];
-
-  return positions[index];
-}
-
-function bindEvents() {
-  elements.chipRail.addEventListener("click", (event) => {
-    const chipButton = event.target.closest("[data-chip]");
-    if (!chipButton) {
-      return;
-    }
-
-    state.selectedChip = Number(chipButton.dataset.chip);
+  DOM.chipRail.addEventListener('click', e => {
+    const btn = e.target.closest('[data-chip]');
+    if (!btn || btn.disabled) return;
+    S.selectedChip = Number(btn.dataset.chip);
     renderChipRail();
-    renderTotals();
-    persistState();
+    renderSummary();
   });
+}
 
-  elements.bettingWheel.addEventListener("click", (event) => {
-    const segmentButton = event.target.closest("[data-segment-id]");
-    if (!segmentButton) {
+function buildSlots() {
+  DOM.slotsGrid.innerHTML = SLOTS.map(sl => `
+    <div class="slot-card" data-slot="${sl.id}" role="button" tabindex="0"
+         aria-label="${sl.name} ${sl.multiplier}x">
+      <button class="slot-clear-btn" data-clear="${sl.id}" aria-label="Remove bet">✕</button>
+      <span class="slot-emoji">${sl.emoji}</span>
+      <span class="slot-name">${sl.name}</span>
+      <span class="slot-odds">${sl.multiplier}x</span>
+      <span class="slot-bet-badge" data-badge="${sl.id}">No bet</span>
+    </div>
+  `).join('');
+
+  // Click to place bet
+  DOM.slotsGrid.addEventListener('click', e => {
+    // Clear bet button
+    const clearBtn = e.target.closest('[data-clear]');
+    if (clearBtn) {
+      e.stopPropagation();
+      if (S.phase === PHASE.BETTING) {
+        S.bets[clearBtn.dataset.clear] = 0;
+        renderSlots();
+        renderSummary();
+      }
       return;
     }
 
-    placeBet(segmentButton.dataset.segmentId, segmentButton);
-  });
-
-  elements.clearBtn.addEventListener("click", clearBets);
-  elements.repeatBtn.addEventListener("click", repeatBets);
-  elements.randomBtn.addEventListener("click", luckyPick);
-  elements.soundBtn.addEventListener("click", toggleSound);
-
-  document.querySelectorAll(".rail-btn").forEach((button) => {
-    button.addEventListener("click", () => handleSideAction(button.dataset.panel));
+    const card = e.target.closest('[data-slot]');
+    if (!card) return;
+    placeBet(card.dataset.slot);
   });
 }
 
-function placeBet(segmentId, button) {
-  if (!state.isBettingOpen) {
-    setMessage("Betting is locked for this round.");
-    return;
-  }
+// ═══════════════════════════════════════════════════════════
+// GAME FLOW
+// ═══════════════════════════════════════════════════════════
 
-  if (state.balance < state.selectedChip) {
-    setMessage("Not enough balance for that chip.");
-    return;
-  }
+// 1. Sync wallet from backend
+async function syncWallet() {
+  try {
+    const res = await api(`/game/init?gameSlug=${encodeURIComponent(AUTH.gameSlug)}`);
+    applyRemoteState(res);
 
-  state.balance -= state.selectedChip;
-  state.totalBet += state.selectedChip;
-  state.bets[segmentId] += state.selectedChip;
-  state.repeatBets[segmentId] = state.bets[segmentId];
-
-  setMessage(`${segmentName(segmentId)} received ${formatCompact(state.selectedChip)}.`);
-  renderAll();
-  persistState();
-
-  if (button) {
-    animateChip(button, state.selectedChip);
-  }
-}
-
-function clearBets() {
-  if (!state.isBettingOpen) {
-    setMessage("Current round is locked. Clear will apply next round.");
-    return;
-  }
-
-  const refunded = state.totalBet;
-  if (!refunded) {
-    setMessage("No active bets to clear.");
-    return;
-  }
-
-  state.balance += refunded;
-  state.totalBet = 0;
-  SEGMENTS.forEach((segment) => {
-    state.bets[segment.id] = 0;
-  });
-  setMessage("All open bets cleared.");
-  renderAll();
-  persistState();
-}
-
-function repeatBets() {
-  if (!state.isBettingOpen) {
-    setMessage("Wait for the next round to repeat bets.");
-    return;
-  }
-
-  const plannedTotal = Object.values(state.repeatBets).reduce((sum, value) => sum + value, 0);
-  if (!plannedTotal) {
-    setMessage("No previous bet pattern to repeat yet.");
-    return;
-  }
-
-  clearBets();
-  if (state.balance < plannedTotal) {
-    setMessage("Balance is too low to repeat the last bets.");
-    return;
-  }
-
-  SEGMENTS.forEach((segment) => {
-    const amount = state.repeatBets[segment.id];
-    if (!amount) {
+    if (!S.game?.isActive) {
+      setOverlay('⚠️ This game is currently inactive');
+      dismissOverlay(2000);
       return;
     }
 
-    state.bets[segment.id] = amount;
-    state.balance -= amount;
-    state.totalBet += amount;
-  });
-
-  setMessage("Previous bet pattern applied.");
-  renderAll();
-  persistState();
+    S.authReady = true;
+    setPhase(PHASE.IDLE, 'Select a chip • tap slots to bet • press Start');
+    enableStartBtn(false, '🎰 Start Round');
+    dismissOverlay(500);
+    renderAll();
+  } catch (err) {
+    setOverlay(`⚠️ ${err.message || 'Server unreachable'}`);
+    dismissOverlay(3000);
+  }
 }
 
-function luckyPick() {
-  if (!state.isBettingOpen) {
-    setMessage("Lucky pick opens again next round.");
+// 2. User taps Start
+DOM.startBtn.addEventListener('click', async () => {
+  if (S.isLoading || S.roundPaid) return;
+
+  if (totalBet() === 0) {
+    setBanner(PHASE.IDLE, '⚠️ Place at least one bet first!');
     return;
   }
 
-  if (state.balance < state.selectedChip) {
-    setMessage("Not enough balance for a lucky pick.");
-    return;
-  }
+  await payAndStart();
+});
 
-  const randomSegment = SEGMENTS[Math.floor(Math.random() * SEGMENTS.length)];
-  const amount = state.selectedChip;
-  placeBet(randomSegment.id);
-  setMessage(`Lucky pick went to ${randomSegment.name} for ${formatCompact(amount)}.`);
-}
+// 3. Pay for round, then open betting
+async function payAndStart() {
+  const cost = S.selectedChip;
+  S.isLoading = true;
+  setStartBtn(true, `Charging ${fmt(cost)} coins…`);
+  setChipsDisabled(true);
 
-function toggleSound() {
-  state.soundOn = !state.soundOn;
-  elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
-  setMessage(state.soundOn ? "Sound cues enabled." : "Sound cues muted.");
-  persistState();
-}
+  try {
+    // Refresh wallet first
+    const init = await api(`/game/init?gameSlug=${encodeURIComponent(AUTH.gameSlug)}`);
+    applyRemoteState(init);
 
-function handleSideAction(panel) {
-  const panelMessages = {
-    home: "Arena home is already open.",
-    settings: "Settings panel can be connected next. Core gameplay is ready.",
-    help: "Choose a chip, tap food icons, and wait for the round result.",
-    history: "Recent results are shown in the result ribbon below.",
-    trophy: "Leaderboard is simulated locally for now."
-  };
-
-  setMessage(panelMessages[panel] || "Panel coming soon.");
-}
-
-function startRoundLoop() {
-  clearInterval(runtime.roundTimer);
-  runtime.roundTimer = window.setInterval(tickRound, 1000);
-}
-
-function startLatencyLoop() {
-  clearInterval(runtime.latencyTimer);
-  runtime.latencyTimer = window.setInterval(() => {
-    state.latency = 145 + Math.floor(Math.random() * 40);
-    elements.latency.textContent = `${state.latency}ms`;
-  }, 2200);
-}
-
-function tickRound() {
-  if (!state.isBettingOpen) {
-    return;
-  }
-
-  state.countdown -= 1;
-  renderCenter();
-
-  if (state.countdown > 0) {
-    return;
-  }
-
-  lockRound();
-}
-
-function lockRound() {
-  state.isBettingOpen = false;
-  state.committedBets = { ...state.bets };
-  elements.repeatBtn.disabled = true;
-  elements.clearBtn.disabled = true;
-  elements.randomBtn.disabled = true;
-  setMessage("Bets locked. Revealing the winning dish...");
-  renderCenter();
-  animateWinner();
-}
-
-function animateWinner() {
-  const path = [];
-  for (let i = 0; i < 18; i += 1) {
-    path.push(SEGMENTS[i % SEGMENTS.length].id);
-  }
-
-  const finalWinner = drawWinningSegment();
-  path.push(finalWinner.id);
-  let step = 0;
-
-  clearInterval(runtime.winnerTimer);
-  runtime.winnerTimer = window.setInterval(() => {
-    highlightSegment(path[step]);
-    step += 1;
-
-    if (step < path.length) {
+    if ((S.walletCoins ?? 0) < cost) {
+      setChipsDisabled(false);
+      setBanner(PHASE.IDLE, '⚠️ Not enough coins!');
+      setStartBtn(false, '🎰 Start Round');
       return;
     }
 
-    clearInterval(runtime.winnerTimer);
-    resolveRound(finalWinner);
-  }, 120);
+    // Deduct coins via play endpoint
+    const res = await api('/game/play', {
+      method: 'POST',
+      body: JSON.stringify({
+        gameSlug:      AUTH.gameSlug,
+        clientRoundId: `r-${S.round}-${Date.now()}`,
+        coinCost:      cost,
+        playCost:      cost,
+        amount:        cost,
+        coins:         cost,
+        chipValue:     cost,
+        betAmount:     cost,
+      }),
+    });
+    applyRemoteState(res);
+
+    // Refresh balance
+    const ref = await api(`/game/init?gameSlug=${encodeURIComponent(AUTH.gameSlug)}`);
+    applyRemoteState(ref);
+
+    S.roundPaid  = true;
+    S.isPlaying  = true;
+    S.countdown  = ROUND_DUR;
+    S.winnerSlot = null;
+
+    setPhase(PHASE.BETTING, `⏱ ${ROUND_DUR}s to lock your bets!`);
+    setStartBtn(true, '⏳ Round in progress…', false);  // disabled, no spinner
+    renderAll();
+    startCountdown();
+
+  } catch (err) {
+    setBanner(PHASE.IDLE, `❌ ${err.message || 'Payment failed'}`);
+    setStartBtn(false, '🎰 Start Round');
+    setChipsDisabled(false);
+  } finally {
+    S.isLoading = false;
+  }
 }
 
-function drawWinningSegment() {
-  const weightedPool = [];
+// 4. Countdown tick
+function startCountdown() {
+  clearInterval(roundTimer);
+  roundTimer = setInterval(() => {
+    S.countdown -= 1;
+    setBanner(PHASE.BETTING, `⏱ ${S.countdown}s — place your bets!`);
+    renderSummary();
 
-  SEGMENTS.forEach((segment) => {
-    const weight = Math.max(1, Math.round(80 / segment.multiplier));
-    for (let i = 0; i < weight; i += 1) {
-      weightedPool.push(segment);
+    if (S.countdown <= 0) {
+      clearInterval(roundTimer);
+      lockAndSpin();
     }
+  }, 1000);
+}
+
+// 5. Lock bets & spin
+function lockAndSpin() {
+  S.phase = PHASE.SPINNING;
+  setStartBtn(true, '🎲 Spinning…', false);
+  setBanner(PHASE.SPINNING, '🎲 Spinning…');
+  setSlotsDisabled(true);
+
+  // Animate all 5 slots cycling
+  const path = buildSpinPath();
+  spinStep = 0;
+
+  clearInterval(spinnerTimer);
+  spinnerTimer = setInterval(() => {
+    // Highlight current spin focus
+    document.querySelectorAll('.slot-card').forEach(c => c.classList.remove('spinning-focus'));
+    const cur = SLOTS[path[spinStep] % SLOTS.length];
+    const card = document.querySelector(`[data-slot="${cur.id}"]`);
+    if (card) card.classList.add('spinning-focus');
+
+    spinStep += 1;
+    if (spinStep >= path.length) {
+      clearInterval(spinnerTimer);
+      document.querySelectorAll('.slot-card').forEach(c => c.classList.remove('spinning-focus'));
+      void resolveRound();
+    }
+  }, 110);
+}
+
+function buildSpinPath() {
+  // 20 random + final winner index
+  const arr = [];
+  for (let i = 0; i < 22; i++) arr.push(Math.floor(Math.random() * SLOTS.length));
+  return arr;
+}
+
+// 6. Resolve winner
+async function resolveRound() {
+  const winner = pickWinner();
+  S.winnerSlot  = winner.id;
+  S.winnerSlot  = winner.id;
+
+  const myBet     = S.bets[winner.id] || 0;
+  const didWin    = myBet > 0;
+  const rawReward = didWin ? myBet * winner.multiplier : 0;
+
+  // Record history
+  S.history.unshift({ emoji: winner.emoji, name: winner.name, mult: winner.multiplier, won: didWin });
+  S.history = S.history.slice(0, 20);
+
+  // Call result endpoint
+  let backendReward = 0;
+  try {
+    const res = await api('/game/result', {
+      method: 'POST',
+      body: JSON.stringify({ gameSlug: AUTH.gameSlug, result: didWin ? 'win' : 'lose' }),
+    });
+    applyRemoteState(res);
+    backendReward = Number(res?.rewardGranted || res?.data?.rewardGranted || 0);
+    // Refresh wallet
+    const ref = await api(`/game/init?gameSlug=${encodeURIComponent(AUTH.gameSlug)}`);
+    applyRemoteState(ref);
+  } catch (_) { /* non-fatal */ }
+
+  const finalReward = backendReward > 0 ? backendReward : rawReward;
+
+  // Highlight winner/losers
+  setPhase(PHASE.RESULT, didWin
+    ? `🎉 ${winner.name} won! +${fmt(finalReward)} coins`
+    : `${winner.emoji} ${winner.name} won — no hit this round`
+  );
+  DOM.phaseBanner.classList.add(didWin ? 'phase-result-win' : 'phase-result-lose');
+
+  document.querySelectorAll('.slot-card').forEach(card => {
+    const isWin = card.dataset.slot === winner.id;
+    card.classList.toggle('winner', isWin);
+    card.classList.toggle('loser',  !isWin);
   });
 
-  return weightedPool[Math.floor(Math.random() * weightedPool.length)];
-}
+  renderAll();
 
-function resolveRound(winner) {
-  state.currentWinner = winner.id;
-
-  const winningBet = state.committedBets[winner.id] || 0;
-  const prize = winningBet * winner.multiplier;
-  if (prize > 0) {
-    state.balance += prize;
-    state.todayProfit += prize - state.totalBet;
-    setMessage(`${winner.name} won at ${winner.multiplier}x. Prize: ${formatCompact(prize)}.`);
-  } else {
-    state.todayProfit -= state.totalBet;
-    setMessage(`${winner.name} won. No hit this round.`);
+  // Show win splash
+  if (didWin && finalReward > 0) {
+    showWinSplash(winner.emoji, finalReward);
   }
 
-  state.history.unshift({
-    id: winner.id,
-    emoji: winner.emoji,
-    name: winner.name,
-    multiplier: winner.multiplier
-  });
-  state.history = state.history.slice(0, 12);
+  // Reset after delay
+  setTimeout(() => {
+    hideWinSplash();
+    nextRound();
+  }, didWin ? 3200 : 2200);
+}
 
-  SEGMENTS.forEach((segment) => {
-    state.bets[segment.id] = 0;
+function pickWinner() {
+  // Weighted by inverse of multiplier (lower mult = more common)
+  const pool = [];
+  SLOTS.forEach(sl => {
+    const w = Math.max(1, Math.round(100 / sl.multiplier));
+    for (let i = 0; i < w; i++) pool.push(sl);
   });
-  state.totalBet = 0;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function nextRound() {
+  S.round      += 1;
+  S.roundPaid   = false;
+  S.isPlaying   = false;
+  S.winnerSlot  = null;
+  S.bets        = {};
+  SLOTS.forEach(sl => { S.bets[sl.id] = 0; });
+
+  document.querySelectorAll('.slot-card').forEach(c => {
+    c.classList.remove('winner', 'loser', 'spinning-focus', 'spinning', 'has-bet', 'disabled');
+  });
+  DOM.phaseBanner.className = 'phase-banner';
+
+  setPhase(PHASE.IDLE, 'Select a chip • tap slots • press Start');
+  enableStartBtn(true, '🎰 Start Round');
+  setChipsDisabled(false);
+  setSlotsDisabled(false);
   renderAll();
-  persistState();
-
-  window.setTimeout(startNextRound, RESULT_DELAY);
+  saveLocalState();
 }
 
-function startNextRound() {
-  state.round += 1;
-  state.countdown = ROUND_DURATION;
-  state.isBettingOpen = true;
-  state.currentWinner = null;
-  state.committedBets = buildEmptyBetMap();
-  elements.repeatBtn.disabled = false;
-  elements.clearBtn.disabled = false;
-  elements.randomBtn.disabled = false;
-  clearHighlights();
-  updateTrendCards();
-  setMessage("New round started. Place your bets.");
-  renderAll();
-  persistState();
+// ═══════════════════════════════════════════════════════════
+// BET PLACEMENT
+// ═══════════════════════════════════════════════════════════
+function placeBet(slotId) {
+  if (S.phase !== PHASE.BETTING) {
+    // Pre-start: show hint
+    if (S.phase === PHASE.IDLE && S.authReady) {
+      // Allow pre-marking before start
+      S.bets[slotId] = (S.bets[slotId] || 0) + S.selectedChip;
+      renderSlots();
+      renderSummary();
+      floatChip(slotId);
+    }
+    return;
+  }
+
+  // During betting: add chip to slot
+  S.bets[slotId] = (S.bets[slotId] || 0) + S.selectedChip;
+  renderSlots();
+  renderSummary();
+  floatChip(slotId);
 }
 
-function buildEmptyBetMap() {
-  return SEGMENTS.reduce((map, segment) => {
-    map[segment.id] = 0;
-    return map;
-  }, {});
+function totalBet() {
+  return Object.values(S.bets).reduce((a, b) => a + b, 0);
 }
 
-function highlightSegment(segmentId) {
-  document.querySelectorAll(".segment-btn").forEach((button) => {
-    const isWinner = button.dataset.segmentId === segmentId;
-    button.classList.toggle("active", isWinner);
-    button.classList.toggle("winner", isWinner && !state.isBettingOpen);
+function slotsWithBet() {
+  return Object.entries(S.bets).filter(([, v]) => v > 0).length;
+}
+
+function maxPotential() {
+  let max = 0;
+  SLOTS.forEach(sl => {
+    if ((S.bets[sl.id] || 0) > 0) {
+      const pot = S.bets[sl.id] * sl.multiplier;
+      if (pot > max) max = pot;
+    }
   });
+  return max;
 }
 
-function clearHighlights() {
-  document.querySelectorAll(".segment-btn").forEach((button) => {
-    button.classList.remove("active", "winner");
-  });
-}
-
+// ═══════════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════════
 function renderAll() {
   renderChipRail();
-  renderSegments();
-  renderCenter();
-  renderTotals();
+  renderSlots();
+  renderSummary();
   renderWallet();
-  renderHistory();
-  renderLeaderboard();
+  renderRound();
 }
 
 function renderChipRail() {
-  elements.chipRail.querySelectorAll(".chip-btn").forEach((button) => {
-    button.classList.toggle("active", Number(button.dataset.chip) === state.selectedChip);
+  DOM.chipRail.querySelectorAll('.chip-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.chip) === S.selectedChip);
   });
 }
 
-function renderSegments() {
-  let totalPool = 0;
+function renderSlots() {
+  SLOTS.forEach(sl => {
+    const card  = document.querySelector(`[data-slot="${sl.id}"]`);
+    const badge = card?.querySelector(`[data-badge="${sl.id}"]`);
+    if (!card) return;
 
-  SEGMENTS.forEach((segment) => {
-    const button = elements.bettingWheel.querySelector(`[data-segment-id="${segment.id}"]`);
-    const myBet = state.isBettingOpen ? state.bets[segment.id] : state.committedBets[segment.id] || 0;
-    const simulatedOthers = simulateOtherPlayersPool(segment.id);
-    const segmentPool = myBet + simulatedOthers;
-    totalPool += segmentPool;
+    const bet = S.bets[sl.id] || 0;
+    card.classList.toggle('has-bet', bet > 0);
 
-    button.querySelector(`[data-pool="${segment.id}"]`).textContent = formatCompact(segmentPool);
-    button.querySelector(`[data-mybet="${segment.id}"]`).textContent = `You ${formatCompact(myBet)}`;
-    button.classList.toggle("active", state.currentWinner === segment.id);
-    button.classList.toggle("winner", state.currentWinner === segment.id);
-    button.disabled = !state.isBettingOpen;
+    if (S.winnerSlot) {
+      card.classList.toggle('winner', sl.id === S.winnerSlot);
+      card.classList.toggle('loser',  sl.id !== S.winnerSlot);
+    }
+
+    if (badge) {
+      badge.textContent = bet > 0 ? fmt(bet) : 'No bet';
+    }
   });
-
-  elements.totalPool.textContent = formatCompact(totalPool);
 }
 
-function renderCenter() {
-  elements.roundNumber.textContent = state.round;
-  elements.countdown.textContent = `${state.countdown}s`;
-
-  if (state.isBettingOpen) {
-    elements.centerTitle.textContent = "Select Time";
-    elements.centerSubtitle.textContent = "Place bets before the timer ends";
-  } else if (state.currentWinner) {
-    const winner = SEGMENTS.find((segment) => segment.id === state.currentWinner);
-    elements.centerTitle.textContent = `${winner.emoji} ${winner.name}`;
-    elements.centerSubtitle.textContent = `Winning multiplier ${winner.multiplier}x`;
-  } else {
-    elements.centerTitle.textContent = "Bet Locked";
-    elements.centerSubtitle.textContent = "Calculating the result";
-  }
-}
-
-function renderTotals() {
-  elements.myTotalBet.textContent = formatCompact(state.totalBet);
-  elements.selectedChip.textContent = formatCompact(state.selectedChip);
+function renderSummary() {
+  DOM.totalBetDisplay.textContent  = fmt(totalBet());
+  DOM.slotsSelected.textContent    = slotsWithBet();
+  DOM.potentialDisplay.textContent = fmt(maxPotential());
 }
 
 function renderWallet() {
-  elements.balanceValue.textContent = formatCompact(state.balance);
-  elements.profitValue.textContent = formatSigned(state.todayProfit);
-  elements.soundBtn.textContent = state.soundOn ? "Sound On" : "Sound Off";
+  DOM.balanceDisplay.textContent = S.walletCoins !== null ? fmt(S.walletCoins) : '--';
 }
 
-function renderHistory() {
-  if (!state.history.length) {
-    elements.historyList.innerHTML = `<div class="history-chip">No rounds yet</div>`;
-    return;
+function renderRound() {
+  DOM.roundNumber.textContent = S.round;
+}
+
+// ── Phase helpers ──────────────────────────────────────────
+function setPhase(phase, msg) {
+  S.phase = phase;
+  setBanner(phase, msg);
+}
+
+function setBanner(phase, msg) {
+  DOM.phaseBanner.className = `phase-banner${phase !== PHASE.IDLE ? ` phase-${phase}` : ''}`;
+  DOM.phaseTxt.textContent  = msg;
+}
+
+// ── Start button states ──────────────────────────────────
+function enableStartBtn(enabled, label) {
+  DOM.startBtn.disabled = !enabled;
+  DOM.startBtn.classList.remove('loading', 'ready');
+  if (enabled) DOM.startBtn.classList.add('ready');
+  DOM.startBtn.querySelector('.btn-text').textContent = label;
+  DOM.startBtn.querySelector('.btn-spinner').style.display = 'none';
+}
+
+function setStartBtn(disabled, label, showSpinner = true) {
+  DOM.startBtn.disabled = disabled;
+  DOM.startBtn.classList.toggle('loading', disabled && showSpinner);
+  DOM.startBtn.classList.remove('ready');
+  DOM.startBtn.querySelector('.btn-text').textContent  = label;
+  DOM.startBtn.querySelector('.btn-spinner').style.display = (disabled && showSpinner) ? 'block' : 'none';
+}
+
+function setChipsDisabled(dis) {
+  DOM.chipRail.querySelectorAll('.chip-btn').forEach(b => { b.disabled = dis; });
+}
+
+function setSlotsDisabled(dis) {
+  document.querySelectorAll('.slot-card').forEach(c => {
+    c.classList.toggle('disabled', dis);
+  });
+}
+
+// ── Floating chip animation ────────────────────────────────
+function floatChip(slotId) {
+  const card = document.querySelector(`[data-slot="${slotId}"]`);
+  if (!card) return;
+  const rect = card.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'floating-chip';
+  el.textContent = fmtCompact(S.selectedChip);
+  el.style.left = `${rect.left + rect.width / 2 - 18}px`;
+  el.style.top  = `${rect.top  + rect.height / 2 - 18}px`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 700);
+}
+
+// ── Win Splash ─────────────────────────────────────────────
+function showWinSplash(emoji, amount) {
+  DOM.winEmoji.textContent  = emoji;
+  DOM.winAmount.textContent = `+${fmt(amount)}`;
+  DOM.winSplash.classList.remove('hidden');
+}
+function hideWinSplash() {
+  DOM.winSplash.classList.add('hidden');
+}
+
+// ── Overlay ────────────────────────────────────────────────
+function setOverlay(msg) {
+  DOM.overlayMsg.textContent = msg;
+  DOM.overlay.classList.remove('hidden');
+}
+function dismissOverlay(delay = 0) {
+  setTimeout(() => DOM.overlay.classList.add('hidden'), delay);
+}
+
+// ═══════════════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════════════
+async function api(path, opts = {}) {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...opts,
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${AUTH.token}`,
+      ...(opts.headers || {}),
+    },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.success === false) {
+    const err = new Error(data?.error?.message || data?.message || 'Request failed');
+    err.status = res.status;
+    throw err;
   }
-
-  elements.historyList.innerHTML = state.history.map((entry) => {
-    return `
-      <div class="history-chip">
-        <div>${entry.emoji}</div>
-        <strong>${entry.multiplier}x</strong>
-      </div>
-    `;
-  }).join("");
+  return data;
 }
 
-function renderLeaderboard() {
-  const names = ["KingJai", "LuckyMira", "SpinRaj", "NovaLeo", "TigerAnn"];
-  const picks = state.history.slice(0, 3).map((entry) => `${entry.name} ${entry.multiplier}x`);
-  const message = `${names[state.round % names.length]} just scored ${formatCompact(180000 + state.round * 1250)} on ${picks[0] || "Steak 45x"} • ${names[(state.round + 2) % names.length]} is chasing ${picks[1] || "Hotdog 10x"}`;
-  elements.leaderboardText.textContent = message;
+function applyRemoteState(payload) {
+  const p = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+
+  // Balance
+  const coinVal = findCoinValue(p);
+  if (typeof coinVal === 'number') S.walletCoins = coinVal;
+
+  // Game
+  const gp = p?.game || p?.data?.game;
+  if (gp) S.game = gp;
 }
 
-function updateTrendCards() {
-  const sorted = [...SEGMENTS].sort((a, b) => a.multiplier - b.multiplier);
-  const left = sorted[state.round % sorted.length];
-  const right = sorted[(state.round + 3) % sorted.length];
-
-  elements.leftTrendValue.textContent = `${(left.multiplier / 4).toFixed(2)}x`;
-  elements.leftTrendName.textContent = left.name;
-  elements.rightTrendValue.textContent = `${(right.multiplier / 10 + 2).toFixed(2)}x`;
-  elements.rightTrendName.textContent = right.name;
+function findCoinValue(p) {
+  const keys = [
+    p?.coins, p?.coinBalance, p?.walletCoins, p?.balance,
+    p?.wallet?.coins, p?.wallet?.balance,
+    p?.user?.coins, p?.user?.coinBalance, p?.user?.walletCoins,
+    p?.data?.coins, p?.data?.coinBalance, p?.data?.walletCoins,
+    p?.data?.wallet?.coins, p?.data?.user?.coins,
+  ];
+  return keys.find(v => typeof v === 'number') ?? null;
 }
 
-function setMessage(text) {
-  elements.messageLine.textContent = text;
-}
-
-function animateChip(button, amount) {
-  const rect = button.getBoundingClientRect();
-  const wheelRect = elements.bettingWheel.getBoundingClientRect();
-  const chip = document.createElement("div");
-  chip.className = "floating-chip";
-  chip.textContent = formatCompact(amount);
-  chip.style.left = `${rect.left - wheelRect.left + rect.width / 2}px`;
-  chip.style.top = `${rect.top - wheelRect.top + rect.height / 2}px`;
-  elements.bettingWheel.appendChild(chip);
-  window.setTimeout(() => chip.remove(), 700);
-}
-
-function simulateOtherPlayersPool(segmentId) {
-  const roundSeed = state.round * 47 + segmentId.length * 91;
-  const base = (Math.sin(roundSeed) + 1) * 0.5;
-  const amount = Math.floor(base * 2200) + 300;
-  return Math.round(amount / 100) * 100;
-}
-
-function segmentName(segmentId) {
-  return SEGMENTS.find((segment) => segment.id === segmentId)?.name || "Unknown";
-}
-
-function formatCompact(value) {
-  if (value >= 1000000) {
-    return `${(value / 1000000).toFixed(2)}M`;
-  }
-
-  if (value >= 1000) {
-    return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
-  }
-
-  return String(value);
-}
-
-function formatSigned(value) {
-  if (value > 0) {
-    return `+${formatCompact(value)}`;
-  }
-  return formatCompact(value);
-}
-
-function persistState() {
-  const snapshot = {
-    round: state.round,
-    balance: state.balance,
-    todayProfit: state.todayProfit,
-    selectedChip: state.selectedChip,
-    repeatBets: state.repeatBets,
-    history: state.history,
-    soundOn: state.soundOn
-  };
-
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
-}
-
-function loadState() {
-  const raw = window.localStorage.getItem(STORAGE_KEY);
-  if (!raw) {
-    updateTrendCards();
-    return;
-  }
-
+// ═══════════════════════════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════════════════════════
+function saveLocalState() {
   try {
-    const saved = JSON.parse(raw);
-    state.round = saved.round ?? state.round;
-    state.balance = saved.balance ?? state.balance;
-    state.todayProfit = saved.todayProfit ?? 0;
-    state.selectedChip = CHIPS.includes(saved.selectedChip) ? saved.selectedChip : state.selectedChip;
-    state.repeatBets = saved.repeatBets ?? state.repeatBets;
-    state.history = saved.history ?? [];
-    state.soundOn = typeof saved.soundOn === "boolean" ? saved.soundOn : true;
-  } catch (error) {
-    console.error("Failed to restore saved game state.", error);
-  }
-
-  updateTrendCards();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      round: S.round, history: S.history,
+      selectedChip: S.selectedChip,
+    }));
+  } catch (_) {}
 }
 
+function restoreLocalState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    S.round        = d.round        ?? 1;
+    S.history      = d.history      ?? [];
+    S.selectedChip = CHIPS.some(c => c.value === d.selectedChip)
+                     ? d.selectedChip : CHIPS[0].value;
+  } catch (_) {}
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════════════
+function getParam(key) {
+  return new URL(location.href).searchParams.get(key)?.trim() || '';
+}
+
+function fmt(n) {
+  if (typeof n !== 'number' || isNaN(n)) return String(n);
+  return n.toLocaleString('en-IN');
+}
+
+function fmtCompact(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000)     return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
+  return String(n);
+}
+
+// ── Boot ────────────────────────────────────────────────────
 init();
